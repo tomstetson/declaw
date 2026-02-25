@@ -1,0 +1,526 @@
+#!/usr/bin/env python3
+"""
+DeClaw Monitor - Real-time Anomaly Detection
+Monitors OpenClaw session transcripts for suspicious agent behavior.
+"""
+
+import argparse
+import json
+import os
+import re
+import subprocess
+import sys
+import time
+from datetime import datetime
+from pathlib import Path
+from typing import Dict, List, Optional
+
+
+class DetectionPattern:
+    """Anomaly detection pattern."""
+
+    def __init__(self, id: str, name: str, severity: str, regex: str,
+                 action: str = "alert", description: str = ""):
+        self.id = id
+        self.name = name
+        self.severity = severity  # CRITICAL, HIGH, MEDIUM, LOW
+        self.regex = re.compile(regex, re.IGNORECASE)
+        self.action = action  # "alert", "kill", "block"
+        self.description = description
+
+
+class AnomalyDetector:
+    """Real-time anomaly detection for OpenClaw agents."""
+
+    def __init__(self, openclaw_dir: Path, alert_webhook: Optional[str] = None,
+                 kill_switch: bool = False, verbose: bool = False):
+        self.openclaw_dir = openclaw_dir
+        self.agents_dir = openclaw_dir / "agents"
+        self.alert_webhook = alert_webhook
+        self.kill_switch_enabled = kill_switch
+        self.verbose = verbose
+
+        # Audit log
+        self.audit_file = Path.home() / ".declaw" / "monitor-audit.log"
+        self.audit_file.parent.mkdir(parents=True, exist_ok=True)
+
+        # Detection counters
+        self.detections = {
+            "CRITICAL": 0,
+            "HIGH": 0,
+            "MEDIUM": 0,
+            "LOW": 0
+        }
+
+        # Session file positions (for tail -f behavior)
+        self.file_positions = {}
+
+        # Patterns
+        self.patterns = self._load_patterns()
+
+    def _load_patterns(self) -> List[DetectionPattern]:
+        """Load detection patterns."""
+        return [
+            # CRITICAL - Environment variable access
+            DetectionPattern(
+                "ENV_ACCESS",
+                "Environment variable access",
+                "CRITICAL",
+                r"(printenv|\\benv\\b|os\.environ|process\.env|/proc/self/environ|\$\(env\)|export.*KEY)",
+                action="kill",
+                description="Agent attempting to read environment variables (likely credential theft)"
+            ),
+
+            # CRITICAL - Base64 encoding (data exfiltration)
+            DetectionPattern(
+                "BASE64_ENCODE",
+                "Base64 encoding",
+                "CRITICAL",
+                r"(base64|xxd|openssl enc|uuencode|btoa\()",
+                action="kill",
+                description="Agent encoding data (possible exfiltration)"
+            ),
+
+            # HIGH - Network exfiltration tools
+            DetectionPattern(
+                "EXFIL_TOOLS",
+                "Data exfiltration tools",
+                "HIGH",
+                r"(curl.*-d|wget.*--post|nc.*-e|socat|ncat)",
+                action="alert",
+                description="Agent using tools commonly used for data exfiltration"
+            ),
+
+            # HIGH - Reverse shell attempts
+            DetectionPattern(
+                "REVERSE_SHELL",
+                "Reverse shell attempt",
+                "HIGH",
+                r"(bash.*-i|sh.*-i|/bin/.*<&|>&|python.*pty\.spawn|perl.*socket)",
+                action="kill",
+                description="Agent attempting to spawn reverse shell"
+            ),
+
+            # HIGH - Credential scanning
+            DetectionPattern(
+                "CRED_SCAN",
+                "Credential scanning",
+                "HIGH",
+                r"(grep.*-r.*password|find.*\.ssh|cat.*/etc/shadow|aws.*configure.*list)",
+                action="alert",
+                description="Agent scanning for credentials on filesystem"
+            ),
+
+            # MEDIUM - Suspicious file operations
+            DetectionPattern(
+                "SUSPICIOUS_FILES",
+                "Suspicious file operations",
+                "MEDIUM",
+                r"(rm.*-rf.*\*|chmod.*777|chown.*root|dd.*if=)",
+                action="alert",
+                description="Agent performing potentially destructive file operations"
+            ),
+
+            # MEDIUM - Port scanning
+            DetectionPattern(
+                "PORT_SCAN",
+                "Port scanning",
+                "MEDIUM",
+                r"(nmap.*-p|masscan|zmap|unicornscan)",
+                action="alert",
+                description="Agent performing network reconnaissance"
+            ),
+
+            # MEDIUM - Docker escape attempts
+            DetectionPattern(
+                "DOCKER_ESCAPE",
+                "Docker escape attempt",
+                "MEDIUM",
+                r"(docker\.sock|/var/run/docker|runc|cgroups)",
+                action="kill",
+                description="Agent attempting to escape Docker container"
+            ),
+
+            # LOW - Rapid API calls
+            DetectionPattern(
+                "API_SPAM",
+                "Rapid API calls",
+                "LOW",
+                r"(web_fetch|web_search|browser)",
+                action="alert",
+                description="High frequency of API calls (possible abuse)"
+            ),
+
+            # LOW - Large file writes
+            DetectionPattern(
+                "LARGE_WRITE",
+                "Large file write",
+                "LOW",
+                r"(dd.*bs=|fallocate|truncate.*-s.*[MGT])",
+                action="alert",
+                description="Agent writing large files (possible disk filling)"
+            ),
+        ]
+
+    def monitor(self, agent_id: Optional[str] = None):
+        """Start monitoring sessions."""
+        print(f"🔍 DeClaw Monitor starting...")
+        print(f"   Monitoring: {self.openclaw_dir}")
+        print(f"   Kill switch: {'ENABLED' if self.kill_switch_enabled else 'DISABLED'}")
+        print(f"   Patterns: {len(self.patterns)} loaded\n")
+
+        # Find session files
+        session_files = self._find_session_files(agent_id)
+
+        if not session_files:
+            print(f"❌ No session files found in {self.agents_dir}")
+            sys.exit(1)
+
+        print(f"📂 Watching {len(session_files)} session file(s):")
+        for sf in session_files:
+            print(f"   - {sf.relative_to(self.openclaw_dir)}")
+        print()
+
+        # Monitor loop
+        try:
+            while True:
+                for session_file in session_files:
+                    self._check_file(session_file)
+
+                time.sleep(0.5)  # Check every 500ms
+
+        except KeyboardInterrupt:
+            print("\n\n🛑 Monitor stopped by user")
+            self._print_summary()
+
+    def _find_session_files(self, agent_id: Optional[str] = None) -> List[Path]:
+        """Find all session .jsonl files."""
+        session_files = []
+
+        if agent_id:
+            # Specific agent
+            agent_dir = self.agents_dir / agent_id / "sessions"
+            if agent_dir.exists():
+                session_files.extend(agent_dir.glob("*.jsonl"))
+        else:
+            # All agents
+            for agent_dir in self.agents_dir.glob("*/sessions"):
+                session_files.extend(agent_dir.glob("*.jsonl"))
+
+        return [f for f in session_files if f.stat().st_size > 0]
+
+    def _check_file(self, session_file: Path):
+        """Check file for new content (tail -f behavior)."""
+        # Get last known position
+        last_pos = self.file_positions.get(str(session_file), 0)
+
+        # Read new content
+        try:
+            with open(session_file, 'r') as f:
+                f.seek(last_pos)
+                new_lines = f.readlines()
+                new_pos = f.tell()
+
+            # Update position
+            self.file_positions[str(session_file)] = new_pos
+
+            # Analyze new lines
+            for line in new_lines:
+                self._analyze_line(line, session_file)
+
+        except FileNotFoundError:
+            # Session file deleted/rotated
+            if str(session_file) in self.file_positions:
+                del self.file_positions[str(session_file)]
+
+    def _analyze_line(self, line: str, session_file: Path):
+        """Analyze a single line from session transcript."""
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError:
+            return
+
+        # Extract agent ID from file path
+        agent_id = session_file.parent.parent.name
+
+        # Check tool calls
+        if entry.get("type") == "tool_use":
+            tool_name = entry.get("name", "")
+            tool_input = json.dumps(entry.get("input", {}))
+
+            # Check against patterns
+            for pattern in self.patterns:
+                if pattern.regex.search(tool_input):
+                    self._handle_detection(pattern, entry, agent_id, session_file, tool_input)
+
+    def _handle_detection(self, pattern: DetectionPattern, entry: Dict,
+                         agent_id: str, session_file: Path, context: str):
+        """Handle a pattern detection."""
+        detection = {
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "event_type": "anomaly_detected",
+            "pattern_id": pattern.id,
+            "pattern_name": pattern.name,
+            "severity": pattern.severity,
+            "agent_id": agent_id,
+            "session_file": str(session_file),
+            "tool": entry.get("name", "unknown"),
+            "context": context[:200],  # First 200 chars
+            "action": pattern.action
+        }
+
+        # Log to audit
+        self._log_detection(detection)
+
+        # Update counters
+        self.detections[pattern.severity] += 1
+
+        # Print alert
+        self._print_alert(pattern, agent_id, context)
+
+        # Take action
+        if pattern.action == "kill" and self.kill_switch_enabled:
+            self._kill_container(agent_id, pattern)
+        elif pattern.action == "alert":
+            self._send_alert(pattern, agent_id, context)
+
+    def _print_alert(self, pattern: DetectionPattern, agent_id: str, context: str):
+        """Print detection alert."""
+        emoji = {
+            "CRITICAL": "🚨",
+            "HIGH": "⚠️ ",
+            "MEDIUM": "⚠️ ",
+            "LOW": "ℹ️ "
+        }
+
+        print(f"\n{emoji[pattern.severity]} [{pattern.severity}] {pattern.name}")
+        print(f"   Agent: {agent_id}")
+        print(f"   Pattern: {pattern.id}")
+        print(f"   Context: {context[:100]}...")
+        print(f"   Action: {pattern.action.upper()}")
+
+    def _log_detection(self, detection: Dict):
+        """Log detection to audit file."""
+        with open(self.audit_file, 'a') as f:
+            f.write(json.dumps(detection) + "\n")
+
+    def _kill_container(self, agent_id: str, pattern: DetectionPattern):
+        """Kill agent container (emergency stop)."""
+        print(f"\n💀 KILL SWITCH ACTIVATED - Stopping agent '{agent_id}'")
+
+        try:
+            # Find container
+            result = subprocess.run(
+                ["docker", "ps", "--filter", f"name={agent_id}", "--format", "{{.ID}}"],
+                capture_output=True,
+                text=True,
+                check=True
+            )
+
+            container_id = result.stdout.strip()
+
+            if container_id:
+                # Kill container
+                subprocess.run(
+                    ["docker", "kill", container_id],
+                    check=True,
+                    capture_output=True
+                )
+                print(f"   ✅ Container {container_id[:12]} killed")
+
+                # Create block file (prevent restart)
+                block_file = Path.home() / ".declaw" / f"{agent_id}.blocked"
+                with open(block_file, 'w') as f:
+                    f.write(json.dumps({
+                        "timestamp": datetime.utcnow().isoformat() + "Z",
+                        "pattern": pattern.id,
+                        "severity": pattern.severity,
+                        "reason": pattern.description
+                    }, indent=2))
+
+                print(f"   🚫 Agent blocked: {block_file}")
+                print(f"   ⚠️  Manual review required before restart")
+
+            else:
+                print(f"   ⚠️  Container not found (may already be stopped)")
+
+        except subprocess.CalledProcessError as e:
+            print(f"   ❌ Failed to kill container: {e}")
+
+    def _send_alert(self, pattern: DetectionPattern, agent_id: str, context: str):
+        """Send alert via webhook/notification."""
+        if self.alert_webhook:
+            # TODO: Implement webhook alert
+            pass
+
+        # For now, just print
+        if self.verbose:
+            print(f"   📨 Alert would be sent via webhook")
+
+    def _print_summary(self):
+        """Print detection summary."""
+        print("\n" + "="*60)
+        print("📊 Detection Summary")
+        print("="*60)
+
+        total = sum(self.detections.values())
+        if total == 0:
+            print("✅ No anomalies detected")
+        else:
+            print(f"🚨 Total detections: {total}")
+            for severity, count in self.detections.items():
+                if count > 0:
+                    print(f"   {severity}: {count}")
+
+        print(f"\n📁 Audit log: {self.audit_file}")
+        print("="*60 + "\n")
+
+
+def cmd_monitor(args):
+    """Start monitoring."""
+    openclaw_dir = Path(args.openclaw_dir).expanduser()
+
+    if not openclaw_dir.exists():
+        print(f"❌ OpenClaw directory not found: {openclaw_dir}", file=sys.stderr)
+        sys.exit(1)
+
+    detector = AnomalyDetector(
+        openclaw_dir=openclaw_dir,
+        alert_webhook=args.webhook,
+        kill_switch=args.kill_switch,
+        verbose=args.verbose
+    )
+
+    detector.monitor(agent_id=args.agent)
+
+
+def cmd_audit(args):
+    """Show detection audit log."""
+    audit_file = Path.home() / ".declaw" / "monitor-audit.log"
+
+    if not audit_file.exists():
+        print("No detections logged yet")
+        return
+
+    # Read and filter
+    with open(audit_file) as f:
+        for line in f:
+            entry = json.loads(line)
+
+            # Filter by agent
+            if args.agent and entry.get("agent_id") != args.agent:
+                continue
+
+            # Filter by severity
+            if args.severity and entry.get("severity") != args.severity:
+                continue
+
+            # Print
+            timestamp = entry["timestamp"]
+            severity = entry["severity"]
+            pattern = entry["pattern_name"]
+            agent = entry["agent_id"]
+            action = entry["action"]
+
+            emoji = {
+                "CRITICAL": "🚨",
+                "HIGH": "⚠️ ",
+                "MEDIUM": "⚠️ ",
+                "LOW": "ℹ️ "
+            }
+
+            print(f"{timestamp} {emoji[severity]} [{severity}] {pattern}")
+            print(f"   Agent: {agent}, Action: {action.upper()}")
+            if args.verbose:
+                print(f"   Context: {entry.get('context', '')}")
+            print()
+
+
+def cmd_patterns(args):
+    """List available detection patterns."""
+    detector = AnomalyDetector(
+        openclaw_dir=Path.home() / ".openclaw",
+        verbose=True
+    )
+
+    print("Available Detection Patterns:\n")
+
+    by_severity = {}
+    for pattern in detector.patterns:
+        if pattern.severity not in by_severity:
+            by_severity[pattern.severity] = []
+        by_severity[pattern.severity].append(pattern)
+
+    for severity in ["CRITICAL", "HIGH", "MEDIUM", "LOW"]:
+        if severity not in by_severity:
+            continue
+
+        print(f"{'='*60}")
+        print(f"{severity} Severity")
+        print(f"{'='*60}\n")
+
+        for pattern in by_severity[severity]:
+            emoji = {
+                "kill": "💀",
+                "alert": "📨",
+                "block": "🚫"
+            }
+
+            print(f"{emoji.get(pattern.action, '📋')} {pattern.id}: {pattern.name}")
+            print(f"   Action: {pattern.action.upper()}")
+            print(f"   Description: {pattern.description}")
+            print(f"   Regex: {pattern.regex.pattern[:80]}...")
+            print()
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="DeClaw Monitor - Real-time anomaly detection for OpenClaw"
+    )
+
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    # monitor command
+    monitor_parser = subparsers.add_parser("monitor", help="Start monitoring")
+    monitor_parser.add_argument(
+        "--openclaw-dir",
+        default="~/.openclaw",
+        help="OpenClaw directory (default: ~/.openclaw)"
+    )
+    monitor_parser.add_argument(
+        "--agent",
+        help="Monitor specific agent only"
+    )
+    monitor_parser.add_argument(
+        "--kill-switch",
+        action="store_true",
+        help="Enable automatic container killing on CRITICAL detections"
+    )
+    monitor_parser.add_argument(
+        "--webhook",
+        help="Webhook URL for alerts (e.g., Telegram bot)"
+    )
+    monitor_parser.add_argument(
+        "-v", "--verbose",
+        action="store_true",
+        help="Verbose output"
+    )
+    monitor_parser.set_defaults(func=cmd_monitor)
+
+    # audit command
+    audit_parser = subparsers.add_parser("audit", help="Show detection audit log")
+    audit_parser.add_argument("--agent", help="Filter by agent")
+    audit_parser.add_argument("--severity", choices=["CRITICAL", "HIGH", "MEDIUM", "LOW"])
+    audit_parser.add_argument("-v", "--verbose", action="store_true")
+    audit_parser.set_defaults(func=cmd_audit)
+
+    # patterns command
+    patterns_parser = subparsers.add_parser("patterns", help="List detection patterns")
+    patterns_parser.set_defaults(func=cmd_patterns)
+
+    args = parser.parse_args()
+    args.func(args)
+
+
+if __name__ == "__main__":
+    main()

@@ -1,10 +1,16 @@
 /**
- * Environment variable substitution for config values.
+ * Environment variable and secrets substitution for config values.
  *
- * Supports `${VAR_NAME}` syntax in string values, substituted at config load time.
- * - Only uppercase env vars are matched: `[A-Z_][A-Z0-9_]*`
- * - Escape with `$${}` to output literal `${}`
- * - Missing env vars throw `MissingEnvVarError` with context
+ * Supports two substitution patterns:
+ * 1. `${VAR_NAME}` - Environment variable substitution
+ *    - Only uppercase env vars are matched: `[A-Z_][A-Z0-9_]*`
+ *    - Escape with `$${}` to output literal `${}`
+ *    - Missing env vars throw `MissingEnvVarError`
+ *
+ * 2. `secret://SECRET_NAME` - DeClaw secrets manager (full value only)
+ *    - Calls declaw-secrets to retrieve vault-stored secrets
+ *    - Missing secrets throw `SecretNotFoundError`
+ *    - Only works when value is exactly "secret://NAME" (not embedded)
  *
  * @example
  * ```json5
@@ -13,6 +19,9 @@
  *     providers: {
  *       "vercel-gateway": {
  *         apiKey: "${VERCEL_GATEWAY_API_KEY}"
+ *       },
+ *       "anthropic": {
+ *         apiKey: "secret://ANTHROPIC_API_KEY"
  *       }
  *     }
  *   }
@@ -20,9 +29,13 @@
  * ```
  */
 
+import { isSecretUri, parseSecretUri, resolveSecret } from "../lib/secrets.js";
 // Pattern for valid uppercase env var names: starts with letter or underscore,
 // followed by letters, numbers, or underscores (all uppercase)
 import { isPlainObject } from "../utils.js";
+
+// Re-export secret errors for convenience
+export { SecretNotFoundError, SecretsManagerNotAvailableError } from "../lib/secrets.js";
 
 const ENV_VAR_NAME_PATTERN = /^[A-Z_][A-Z0-9_]*$/;
 
@@ -76,6 +89,15 @@ function parseEnvTokenAt(value: string, index: number): EnvToken | null {
 }
 
 function substituteString(value: string, env: NodeJS.ProcessEnv, configPath: string): string {
+  // Check for secret:// URI first (must be exact match, not embedded)
+  if (isSecretUri(value)) {
+    const secretName = parseSecretUri(value);
+    if (secretName) {
+      return resolveSecret(secretName, configPath);
+    }
+    return value;
+  }
+
   if (!value.includes("$")) {
     return value;
   }
@@ -159,12 +181,16 @@ function substituteAny(value: unknown, env: NodeJS.ProcessEnv, path: string): un
 }
 
 /**
- * Resolves `${VAR_NAME}` environment variable references in config values.
+ * Resolves config value substitutions:
+ * - `${VAR_NAME}` environment variable references
+ * - `secret://SECRET_NAME` DeClaw secrets manager URIs
  *
  * @param obj - The parsed config object (after JSON5 parse and $include resolution)
- * @param env - Environment variables to use for substitution (defaults to process.env)
- * @returns The config object with env vars substituted
+ * @param env - Environment variables to use for ${} substitution (defaults to process.env)
+ * @returns The config object with substitutions resolved
  * @throws {MissingEnvVarError} If a referenced env var is not set or empty
+ * @throws {SecretNotFoundError} If a referenced secret doesn't exist
+ * @throws {SecretsManagerNotAvailableError} If declaw-secrets is not available
  */
 export function resolveConfigEnvVars(obj: unknown, env: NodeJS.ProcessEnv = process.env): unknown {
   return substituteAny(obj, env, "");

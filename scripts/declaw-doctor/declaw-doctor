@@ -1,0 +1,568 @@
+#!/usr/bin/env python3
+"""
+DeClaw Doctor - OpenClaw Security Auditor
+Identifies misconfigurations and security issues in OpenClaw configs.
+"""
+
+import argparse
+import json
+import os
+import secrets
+import sys
+from pathlib import Path
+from typing import Dict, List, Tuple
+
+
+class SecurityCheck:
+    """Individual security check."""
+
+    def __init__(self, id: str, severity: str, title: str, check_fn, fix_fn=None):
+        self.id = id
+        self.severity = severity  # CRITICAL, HIGH, MEDIUM, LOW
+        self.title = title
+        self.check_fn = check_fn
+        self.fix_fn = fix_fn
+
+
+class ConfigAuditor:
+    """OpenClaw configuration security auditor."""
+
+    SEVERITY_ORDER = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
+
+    def __init__(self, config_path: Path, verbose: bool = False):
+        self.config_path = config_path
+        self.verbose = verbose
+        self.config = None
+        self.issues = []
+        self.warnings = []
+        self.info = []
+
+        # Load config
+        try:
+            with open(config_path) as f:
+                self.config = json.load(f)
+        except FileNotFoundError:
+            print(f"❌ Config not found: {config_path}", file=sys.stderr)
+            sys.exit(1)
+        except json.JSONDecodeError as e:
+            print(f"❌ Invalid JSON: {e}", file=sys.stderr)
+            sys.exit(1)
+
+    def run_checks(self) -> Tuple[List, List, List]:
+        """Run all security checks."""
+        checks = self._get_checks()
+
+        for check in checks:
+            result = check.check_fn(self.config)
+
+            if result:
+                issue = {
+                    "id": check.id,
+                    "severity": check.severity,
+                    "title": check.title,
+                    "message": result,
+                    "fixable": check.fix_fn is not None
+                }
+
+                if check.severity in ("CRITICAL", "HIGH"):
+                    self.issues.append(issue)
+                elif check.severity == "MEDIUM":
+                    self.warnings.append(issue)
+                else:
+                    self.info.append(issue)
+
+        return self.issues, self.warnings, self.info
+
+    def auto_fix(self) -> int:
+        """Auto-fix issues where possible."""
+        checks = self._get_checks()
+        fixed_count = 0
+
+        for check in checks:
+            if check.fix_fn and check.check_fn(self.config):
+                if self.verbose:
+                    print(f"🔧 Fixing: {check.title}")
+
+                check.fix_fn(self.config)
+                fixed_count += 1
+
+        return fixed_count
+
+    def save_config(self):
+        """Save modified config."""
+        # Backup original
+        backup_path = self.config_path.with_suffix('.json.bak')
+        if self.config_path.exists():
+            import shutil
+            shutil.copy(self.config_path, backup_path)
+            print(f"📦 Backup saved: {backup_path}")
+
+        # Write updated config
+        with open(self.config_path, 'w') as f:
+            json.dump(self.config, f, indent=2)
+
+        print(f"✅ Config saved: {self.config_path}")
+
+    def _get_checks(self) -> List[SecurityCheck]:
+        """Define all security checks."""
+        return [
+            # CRITICAL checks
+            SecurityCheck(
+                "C1",
+                "CRITICAL",
+                "Gateway auth token missing or too short",
+                self._check_gateway_token,
+                self._fix_gateway_token
+            ),
+            SecurityCheck(
+                "C2",
+                "CRITICAL",
+                "API keys stored in environment variables",
+                self._check_env_vars,
+                None  # Can't auto-fix, requires declaw-secrets
+            ),
+            SecurityCheck(
+                "C3",
+                "CRITICAL",
+                "Sandbox disabled for one or more agents",
+                self._check_sandbox_enabled,
+                self._fix_sandbox_enabled
+            ),
+
+            # HIGH severity checks
+            SecurityCheck(
+                "H1",
+                "HIGH",
+                "Dangerous tools allowed (gateway, sessions_send, sessions_list)",
+                self._check_dangerous_tools,
+                self._fix_dangerous_tools
+            ),
+            SecurityCheck(
+                "H2",
+                "HIGH",
+                "Exec approvals disabled",
+                self._check_exec_approvals,
+                self._fix_exec_approvals
+            ),
+            SecurityCheck(
+                "H3",
+                "HIGH",
+                "readOnlyRoot disabled (allows persistent malware)",
+                self._check_readonly_root,
+                self._fix_readonly_root
+            ),
+
+            # MEDIUM severity checks
+            SecurityCheck(
+                "M1",
+                "MEDIUM",
+                "Context pruning not enabled (risk of overflow)",
+                self._check_context_pruning,
+                self._fix_context_pruning
+            ),
+            SecurityCheck(
+                "M2",
+                "MEDIUM",
+                "Gateway bound to non-loopback without TLS",
+                self._check_gateway_bind,
+                None  # Can't auto-fix, requires manual TLS setup
+            ),
+            SecurityCheck(
+                "M3",
+                "MEDIUM",
+                "No capability drop configured (ALL capabilities)",
+                self._check_cap_drop,
+                self._fix_cap_drop
+            ),
+
+            # LOW severity checks
+            SecurityCheck(
+                "L1",
+                "LOW",
+                "Gateway reload mode may cause race conditions",
+                self._check_reload_mode,
+                self._fix_reload_mode
+            ),
+        ]
+
+    # Check functions
+    def _check_gateway_token(self, config: Dict) -> str:
+        """Check if gateway auth token is set and strong."""
+        token = config.get("gateway", {}).get("auth", {}).get("token", "")
+
+        if not token:
+            return "Gateway auth token not set (anyone can access gateway)"
+        elif len(token) < 32:
+            return f"Gateway token too short ({len(token)} chars, need 32+)"
+
+        return None
+
+    def _check_env_vars(self, config: Dict) -> str:
+        """Check if API keys are stored in env vars."""
+        issues = []
+
+        for agent in config.get("agents", {}).get("list", []):
+            env_vars = agent.get("sandbox", {}).get("docker", {}).get("env", {})
+
+            # Look for keys that look like API keys
+            for key, value in env_vars.items():
+                if any(pattern in key.upper() for pattern in ["KEY", "TOKEN", "SECRET", "PASSWORD"]):
+                    if value and not value.startswith("secret://"):
+                        issues.append(f"Agent '{agent.get('id')}' has '{key}' in env")
+
+        if issues:
+            return "; ".join(issues) + " (use declaw-secrets instead)"
+
+        return None
+
+    def _check_sandbox_enabled(self, config: Dict) -> str:
+        """Check if sandbox is enabled for all agents."""
+        issues = []
+
+        for agent in config.get("agents", {}).get("list", []):
+            sandbox_mode = agent.get("sandbox", {}).get("mode", "off")
+            if sandbox_mode != "all":
+                issues.append(f"Agent '{agent.get('id')}' has sandbox={sandbox_mode}")
+
+        if issues:
+            return "; ".join(issues)
+
+        return None
+
+    def _check_dangerous_tools(self, config: Dict) -> str:
+        """Check if dangerous tools are allowed."""
+        dangerous = ["gateway", "sessions_send", "sessions_list", "sessions_history", "nodes"]
+        issues = []
+
+        for agent in config.get("agents", {}).get("list", []):
+            allowed = agent.get("tools", {}).get("allow", [])
+
+            dangerous_allowed = [tool for tool in dangerous if tool in allowed]
+            if dangerous_allowed:
+                issues.append(f"Agent '{agent.get('id')}' allows: {', '.join(dangerous_allowed)}")
+
+        if issues:
+            return "; ".join(issues)
+
+        return None
+
+    def _check_exec_approvals(self, config: Dict) -> str:
+        """Check if exec approvals are enabled."""
+        exec_enabled = config.get("approvals", {}).get("exec", {}).get("enabled", False)
+
+        if not exec_enabled:
+            return "Exec approvals disabled (agents can run any command without approval)"
+
+        return None
+
+    def _check_readonly_root(self, config: Dict) -> str:
+        """Check if readOnlyRoot is enabled."""
+        issues = []
+
+        for agent in config.get("agents", {}).get("list", []):
+            readonly = agent.get("sandbox", {}).get("docker", {}).get("readOnlyRoot", False)
+            if not readonly:
+                issues.append(f"Agent '{agent.get('id')}' has writable root filesystem")
+
+        if issues:
+            return "; ".join(issues)
+
+        return None
+
+    def _check_context_pruning(self, config: Dict) -> str:
+        """Check if context pruning is enabled."""
+        pruning_mode = config.get("agents", {}).get("contextPruning", {}).get("mode", "off")
+
+        if pruning_mode == "off":
+            return "Context pruning disabled (risk of 200K token overflow)"
+
+        return None
+
+    def _check_gateway_bind(self, config: Dict) -> str:
+        """Check if gateway is bound to non-loopback without TLS."""
+        bind = config.get("gateway", {}).get("bind", "loopback")
+        mode = config.get("gateway", {}).get("mode", "local")
+
+        if bind != "loopback" and mode != "tailscale":
+            return f"Gateway bound to '{bind}' without TLS (requires Tailscale or manual HTTPS setup)"
+
+        return None
+
+    def _check_cap_drop(self, config: Dict) -> str:
+        """Check if Docker capabilities are dropped."""
+        issues = []
+
+        for agent in config.get("agents", {}).get("list", []):
+            cap_drop = agent.get("sandbox", {}).get("docker", {}).get("capDrop", [])
+            if "ALL" not in cap_drop:
+                issues.append(f"Agent '{agent.get('id')}' doesn't drop ALL capabilities")
+
+        if issues:
+            return "; ".join(issues)
+
+        return None
+
+    def _check_reload_mode(self, config: Dict) -> str:
+        """Check gateway reload mode."""
+        reload_mode = config.get("gateway", {}).get("reload", {}).get("mode", "hybrid")
+
+        if reload_mode not in ("hot", "off"):
+            return f"Gateway reload mode '{reload_mode}' may cause restart race conditions (use 'hot')"
+
+        return None
+
+    # Fix functions
+    def _fix_gateway_token(self, config: Dict):
+        """Generate and set gateway auth token."""
+        if "gateway" not in config:
+            config["gateway"] = {}
+        if "auth" not in config["gateway"]:
+            config["gateway"]["auth"] = {}
+
+        # Generate 32-byte (64 hex char) token
+        token = secrets.token_hex(32)
+        config["gateway"]["auth"]["mode"] = "token"
+        config["gateway"]["auth"]["token"] = token
+
+        print(f"  Generated new gateway token: {token[:16]}...{token[-8:]}")
+
+    def _fix_sandbox_enabled(self, config: Dict):
+        """Enable sandbox for all agents."""
+        for agent in config.get("agents", {}).get("list", []):
+            if "sandbox" not in agent:
+                agent["sandbox"] = {}
+            agent["sandbox"]["mode"] = "all"
+
+            print(f"  Enabled sandbox for agent '{agent.get('id')}'")
+
+    def _fix_dangerous_tools(self, config: Dict):
+        """Remove dangerous tools from allow lists."""
+        dangerous = ["gateway", "sessions_send", "sessions_list", "sessions_history", "nodes"]
+
+        for agent in config.get("agents", {}).get("list", []):
+            if "tools" not in agent:
+                agent["tools"] = {}
+            if "allow" not in agent["tools"]:
+                agent["tools"]["allow"] = []
+
+            original_count = len(agent["tools"]["allow"])
+            agent["tools"]["allow"] = [
+                tool for tool in agent["tools"]["allow"]
+                if tool not in dangerous
+            ]
+            removed_count = original_count - len(agent["tools"]["allow"])
+
+            if removed_count > 0:
+                print(f"  Removed {removed_count} dangerous tool(s) from agent '{agent.get('id')}'")
+
+    def _fix_exec_approvals(self, config: Dict):
+        """Enable exec approvals."""
+        if "approvals" not in config:
+            config["approvals"] = {}
+        if "exec" not in config["approvals"]:
+            config["approvals"]["exec"] = {}
+
+        config["approvals"]["exec"]["enabled"] = True
+        config["approvals"]["exec"]["mode"] = "targets"
+
+        # Try to infer approval target from existing channels
+        if "targets" not in config["approvals"]["exec"]:
+            targets = []
+
+            # Check Telegram
+            telegram = config.get("channels", {}).get("telegram", {})
+            if telegram.get("enabled"):
+                # Need user to specify their Telegram ID
+                print("  ⚠️  Exec approvals enabled, but you need to set approval target")
+                print("     Add your Telegram user ID to config manually")
+                targets.append({
+                    "channel": "telegram",
+                    "to": "YOUR_TELEGRAM_USER_ID"
+                })
+
+            config["approvals"]["exec"]["targets"] = targets
+
+        print("  Enabled exec approvals")
+
+    def _fix_readonly_root(self, config: Dict):
+        """Enable readOnlyRoot for all agents."""
+        for agent in config.get("agents", {}).get("list", []):
+            if "sandbox" not in agent:
+                agent["sandbox"] = {}
+            if "docker" not in agent["sandbox"]:
+                agent["sandbox"]["docker"] = {}
+
+            agent["sandbox"]["docker"]["readOnlyRoot"] = True
+
+            print(f"  Enabled readOnlyRoot for agent '{agent.get('id')}'")
+
+    def _fix_context_pruning(self, config: Dict):
+        """Enable context pruning."""
+        if "agents" not in config:
+            config["agents"] = {}
+
+        config["agents"]["contextPruning"] = {
+            "mode": "cache-ttl",
+            "ttl": "1h"
+        }
+
+        print("  Enabled context pruning (cache-ttl, 1h)")
+
+    def _fix_cap_drop(self, config: Dict):
+        """Drop all Docker capabilities."""
+        for agent in config.get("agents", {}).get("list", []):
+            if "sandbox" not in agent:
+                agent["sandbox"] = {}
+            if "docker" not in agent["sandbox"]:
+                agent["sandbox"]["docker"] = {}
+
+            agent["sandbox"]["docker"]["capDrop"] = ["ALL"]
+
+            print(f"  Dropped ALL capabilities for agent '{agent.get('id')}'")
+
+    def _fix_reload_mode(self, config: Dict):
+        """Set gateway reload mode to hot."""
+        if "gateway" not in config:
+            config["gateway"] = {}
+        if "reload" not in config["gateway"]:
+            config["gateway"]["reload"] = {}
+
+        config["gateway"]["reload"]["mode"] = "hot"
+        config["gateway"]["reload"]["debounceMs"] = 500
+
+        print("  Set gateway reload mode to 'hot'")
+
+
+def print_report(issues: List, warnings: List, info: List, verbose: bool = False):
+    """Print security audit report."""
+    total_checks = len(issues) + len(warnings) + len(info)
+
+    print("\n" + "="*60)
+    print("🔍 DeClaw Security Audit Report")
+    print("="*60 + "\n")
+
+    # Critical/High issues
+    if issues:
+        print("❌ CRITICAL & HIGH ISSUES:\n")
+        for issue in sorted(issues, key=lambda x: ConfigAuditor.SEVERITY_ORDER[x["severity"]]):
+            severity_emoji = "🚨" if issue["severity"] == "CRITICAL" else "⚠️ "
+            fixable = " [AUTO-FIXABLE]" if issue["fixable"] else ""
+            print(f"{severity_emoji} [{issue['id']}] {issue['title']}{fixable}")
+            print(f"   {issue['message']}\n")
+
+    # Medium warnings
+    if warnings:
+        print("⚠️  MEDIUM WARNINGS:\n")
+        for warning in warnings:
+            fixable = " [AUTO-FIXABLE]" if warning["fixable"] else ""
+            print(f"⚠️  [{warning['id']}] {warning['title']}{fixable}")
+            print(f"   {warning['message']}\n")
+
+    # Low info
+    if info and verbose:
+        print("ℹ️  LOW PRIORITY:\n")
+        for i in info:
+            fixable = " [AUTO-FIXABLE]" if i["fixable"] else ""
+            print(f"ℹ️  [{i['id']}] {i['title']}{fixable}")
+            print(f"   {i['message']}\n")
+
+    # Summary
+    print("="*60)
+    passed = total_checks - len(issues) - len(warnings) - len(info)
+    failed = len(issues) + len(warnings) + len(info)
+
+    if failed == 0:
+        print(f"✅ All checks passed! ({total_checks}/{total_checks})")
+        print("\nYour OpenClaw config follows DeClaw security best practices.")
+    else:
+        print(f"Score: {passed}/{total_checks} checks passed")
+        print(f"  - {len(issues)} critical/high issues")
+        print(f"  - {len(warnings)} medium warnings")
+        print(f"  - {len(info)} low priority items")
+
+        # Count fixable
+        fixable_count = sum(1 for x in issues + warnings + info if x["fixable"])
+        if fixable_count > 0:
+            print(f"\n💡 {fixable_count} issue(s) can be auto-fixed with: declaw-doctor --fix")
+
+    print("="*60 + "\n")
+
+
+def cmd_audit(args):
+    """Run security audit."""
+    config_path = Path(args.config).expanduser()
+    auditor = ConfigAuditor(config_path, verbose=args.verbose)
+
+    issues, warnings, info = auditor.run_checks()
+    print_report(issues, warnings, info, verbose=args.verbose)
+
+    # Exit code
+    if issues:
+        sys.exit(1)  # Critical/high issues
+    elif warnings:
+        sys.exit(2)  # Medium warnings
+    else:
+        sys.exit(0)  # All good
+
+
+def cmd_fix(args):
+    """Auto-fix issues."""
+    config_path = Path(args.config).expanduser()
+    auditor = ConfigAuditor(config_path, verbose=args.verbose)
+
+    print("🔧 Auto-fixing security issues...\n")
+
+    fixed_count = auditor.auto_fix()
+
+    if fixed_count > 0:
+        if args.dry_run:
+            print(f"\n✅ Would fix {fixed_count} issue(s) (dry run)")
+        else:
+            auditor.save_config()
+            print(f"\n✅ Fixed {fixed_count} issue(s)")
+            print("\nRe-run audit to verify:")
+            print(f"  declaw-doctor {args.config}")
+    else:
+        print("\nℹ️  No auto-fixable issues found")
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="DeClaw Doctor - OpenClaw security auditor"
+    )
+
+    parser.add_argument(
+        "config",
+        nargs="?",
+        default="~/.openclaw/openclaw.json",
+        help="Path to OpenClaw config (default: ~/.openclaw/openclaw.json)"
+    )
+
+    parser.add_argument(
+        "--fix",
+        action="store_true",
+        help="Auto-fix issues where possible"
+    )
+
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Show what would be fixed without making changes"
+    )
+
+    parser.add_argument(
+        "-v", "--verbose",
+        action="store_true",
+        help="Show all issues including low priority"
+    )
+
+    args = parser.parse_args()
+
+    if args.fix or args.dry_run:
+        cmd_fix(args)
+    else:
+        cmd_audit(args)
+
+
+if __name__ == "__main__":
+    main()

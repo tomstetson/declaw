@@ -1,19 +1,28 @@
 {
-  "name": "openclaw",
-  "version": "2026.2.24",
-  "description": "Multi-channel AI gateway with extensible messaging integrations",
-  "keywords": [],
-  "homepage": "https://github.com/openclaw/openclaw#readme",
+  "name": "declaw",
+  "version": "1.0.0-alpha",
+  "description": "Security-hardened AI gateway fork of OpenClaw with defense-in-depth",
+  "keywords": [
+    "agent",
+    "ai",
+    "gateway",
+    "security"
+  ],
+  "homepage": "https://github.com/tomstetson/declaw#readme",
   "bugs": {
-    "url": "https://github.com/openclaw/openclaw/issues"
+    "url": "https://github.com/tomstetson/declaw/issues"
   },
   "license": "MIT",
-  "author": "",
+  "author": "Tom Stetson",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/openclaw/openclaw.git"
+    "url": "git+https://github.com/tomstetson/declaw.git"
   },
   "bin": {
+    "declaw": "openclaw.mjs",
+    "declaw-doctor": "scripts/declaw-doctor/declaw-doctor",
+    "declaw-monitor": "scripts/declaw-monitor/declaw-monitor",
+    "declaw-secrets": "scripts/declaw-secrets/declaw-secrets",
     "openclaw": "openclaw.mjs"
   },
   "directories": {
@@ -30,6 +39,9 @@
     "dist/",
     "docs/",
     "extensions/",
+    "scripts/declaw-doctor/",
+    "scripts/declaw-monitor/",
+    "scripts/declaw-secrets/",
     "skills/"
   ],
   "type": "module",
