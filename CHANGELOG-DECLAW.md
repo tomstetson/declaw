@@ -116,9 +116,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 **Fork Information**
 
-- Based on OpenClaw v2026.2.9
+- Based on OpenClaw v2026.2.24
 - Upstream remote: `git@github.com:openclaw/openclaw.git`
-- Sync strategy: Weekly cherry-picks from upstream
+- Sync strategy: Clean rebuild per tagged release (see docs/adr/003-fork-strategy.md)
 - Maintained by: Tom Stetson (@tomstetson)
 
 **Performance Impact**
@@ -210,17 +210,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Track OpenClaw upstream merges here.
 
+### 2026-02-25 - Rebuild on v2026.2.24
+
+- Rebuilt from: `openclaw/openclaw@v2026.2.24`
+- Strategy: Clean rebuild (see docs/adr/003-fork-strategy.md)
+- Adapted `env-substitution.ts` to upstream's new `parseEnvTokenAt` refactor
+- Updated CI workflows (Blacksmith runners removed, release-check disabled)
+- Status: Clean rebuild, types/lint/tests pass
+
 ### 2026-02-10 - Initial Fork
 
 - Forked from: `openclaw/openclaw@v2026.2.9`
-- Commit: `abc123def456...` (upstream/main)
 - Status: Clean fork, no conflicts
-
-### Future Syncs
-
-- Weekly automated PR created for upstream changes
-- Security-relevant changes reviewed manually
-- Merge strategy: Cherry-pick preferred over full merge
 
 ---
 

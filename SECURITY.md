@@ -1,21 +1,36 @@
 # Security Policy
 
-If you believe you've found a security issue in OpenClaw, please report it privately.
+DeClaw is a security-hardened fork of [OpenClaw](https://github.com/openclaw/openclaw).
+It inherits OpenClaw's trust model and adds defense-in-depth controls.
 
 ## Reporting
 
-Report vulnerabilities directly to the repository where the issue lives:
+**DeClaw-specific issues** (secrets manager, config validator, anomaly detector,
+secret:// URI scheme):
 
-- **Core CLI and gateway** — [openclaw/openclaw](https://github.com/openclaw/openclaw)
-- **macOS desktop app** — [openclaw/openclaw](https://github.com/openclaw/openclaw) (apps/macos)
-- **iOS app** — [openclaw/openclaw](https://github.com/openclaw/openclaw) (apps/ios)
-- **Android app** — [openclaw/openclaw](https://github.com/openclaw/openclaw) (apps/android)
-- **ClawHub** — [openclaw/clawhub](https://github.com/openclaw/clawhub)
-- **Trust and threat model** — [openclaw/trust](https://github.com/openclaw/trust)
+- Open a private security advisory at [tomstetson/declaw](https://github.com/tomstetson/declaw/security/advisories/new)
+- Or email: tomstetson@users.noreply.github.com
 
-For issues that don't fit a specific repo, or if you're unsure, email **[security@openclaw.ai](mailto:security@openclaw.ai)** and we'll route it.
+**Upstream OpenClaw issues** (core CLI, gateway, channels, plugins):
 
-For full reporting instructions see our [Trust page](https://trust.openclaw.ai).
+- Report to [openclaw/openclaw](https://github.com/openclaw/openclaw/security/advisories/new)
+- Or email: security@openclaw.ai
+- See [OpenClaw Trust page](https://trust.openclaw.ai) for full instructions
+
+## DeClaw Security Architecture
+
+DeClaw adds these security layers on top of OpenClaw:
+
+- **Secrets management** -- `secret://` URI scheme resolves credentials from vaults
+  (macOS Keychain, HashiCorp Vault, Bitwarden, 1Password) instead of environment variables
+- **Config validation** -- `declaw-doctor` audits 10 security checks at startup and
+  refuses to start if critical issues are found
+- **Runtime monitoring** -- `declaw-monitor` watches session transcripts for anomalous
+  patterns and can kill compromised containers
+- **Sandbox enforcement** -- Mandatory Docker sandboxing with read-only root and
+  capability dropping for non-main sessions
+
+See `CHANGELOG-DECLAW.md` for the full security advisory list (SA-2026-001 through SA-2026-004).
 
 ### Required in Reports
 
@@ -88,7 +103,7 @@ OpenClaw does **not** model one gateway as a multi-tenant, adversarial user boun
 - Recommended mode: one user per machine/host (or VPS), one gateway for that user, and one or more agents inside that gateway.
 - If multiple users need OpenClaw, use one VPS (or host/OS user boundary) per user.
 - For advanced setups, multiple gateways on one machine are possible, but only with strict isolation and are not the recommended default.
-- Exec behavior is host-first by default: `agents.defaults.sandbox.mode` defaults to `off`.
+- Exec behavior in upstream OpenClaw is host-first by default: `agents.defaults.sandbox.mode` defaults to `off`. DeClaw enforces `non-main` as the minimum sandbox mode.
 - `tools.exec.host` defaults to `sandbox` as a routing preference, but if sandbox runtime is not active for the session, exec runs on the gateway host.
 - Implicit exec calls (no explicit host in the tool call) follow the same behavior.
 - This is expected in OpenClaw's one-user trusted-operator model. If you need isolation, enable sandbox mode (`non-main`/`all`) and keep strict tool policy.
