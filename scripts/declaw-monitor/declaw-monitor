@@ -545,14 +545,29 @@ class AnomalyDetector:
         with open(self.audit_file, 'a') as f:
             f.write(json.dumps(detection) + "\n")
 
+    @staticmethod
+    def _validate_agent_id(agent_id: str) -> bool:
+        """Validate agent_id is safe to use in Docker filter.
+
+        agent_id comes from filesystem directory names (session_file.parent.parent.name).
+        Strict validation prevents Docker filter injection via crafted directory names.
+        """
+        import re
+        return bool(re.match(r'^[A-Za-z0-9_.-]+$', agent_id)) and len(agent_id) <= 128
+
     def _kill_container(self, agent_id: str, pattern: DetectionPattern):
         """Kill agent container (emergency stop)."""
+        if not self._validate_agent_id(agent_id):
+            print(f"\n❌ KILL SWITCH ABORTED - Invalid agent ID: {repr(agent_id)}")
+            print(f"   Agent ID must be alphanumeric (with . _ -) and <= 128 chars")
+            return
+
         print(f"\n💀 KILL SWITCH ACTIVATED - Stopping agent '{agent_id}'")
 
         try:
-            # Find container
+            # Find container — use exact match filter to prevent partial-name hits
             result = subprocess.run(
-                ["docker", "ps", "--filter", f"name={agent_id}", "--format", "{{.ID}}"],
+                ["docker", "ps", "--filter", f"name=^{agent_id}$", "--format", "{{.ID}}"],
                 capture_output=True,
                 text=True,
                 check=True

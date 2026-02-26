@@ -135,6 +135,38 @@ describe("resolveSecret", () => {
 
     expect(() => resolveSecret("ANY", "config.key")).toThrow(SecretsManagerNotAvailableError);
   });
+
+  it("rejects secret names containing shell metacharacters", () => {
+    // Defense in depth: resolveSecret validates internally even though
+    // parseSecretUri also validates. This prevents injection if resolveSecret
+    // is called directly with an unsanitized name.
+    mockedExecSync.mockClear();
+    expect(() => resolveSecret('foo"; rm -rf /', "config.key")).toThrow(SecretNotFoundError);
+    expect(mockedExecSync).not.toHaveBeenCalled();
+  });
+
+  it("rejects secret names with spaces", () => {
+    mockedExecSync.mockClear();
+    expect(() => resolveSecret("HAS SPACE", "config.key")).toThrow(SecretNotFoundError);
+    expect(mockedExecSync).not.toHaveBeenCalled();
+  });
+
+  it("rejects secret names with backticks", () => {
+    mockedExecSync.mockClear();
+    expect(() => resolveSecret("`whoami`", "config.key")).toThrow(SecretNotFoundError);
+    expect(mockedExecSync).not.toHaveBeenCalled();
+  });
+
+  it("rejects secret names with dollar signs", () => {
+    mockedExecSync.mockClear();
+    expect(() => resolveSecret("$(id)", "config.key")).toThrow(SecretNotFoundError);
+    expect(mockedExecSync).not.toHaveBeenCalled();
+  });
+
+  it("accepts valid secret names with underscores and hyphens", () => {
+    mockedExecSync.mockReturnValueOnce("value\n");
+    expect(() => resolveSecret("MY_API-KEY_v2", "config.key")).not.toThrow();
+  });
 });
 
 describe("error classes", () => {

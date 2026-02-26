@@ -54,6 +54,13 @@ export class SecretsManagerNotAvailableError extends Error {
  * @throws {SecretsManagerNotAvailableError} If declaw-secrets is not available
  */
 export function resolveSecret(secretName: string, configPath: string): string {
+  // Defense in depth: validate secret name before constructing shell command.
+  // The caller (parseSecretUri) also validates, but resolveSecret is a public
+  // function — any future caller must not be able to inject shell metacharacters.
+  if (!/^[A-Za-z0-9_-]+$/.test(secretName)) {
+    throw new SecretNotFoundError(secretName, configPath);
+  }
+
   try {
     // Try to call declaw-secrets from the bundled scripts directory
     const declawSecretsPath = path.resolve(

@@ -410,6 +410,125 @@ class TestProviderAvailability:
 
 
 # ---------------------------------------------------------------------------
+# Vault provider stdin piping (security fix: secret not on CLI)
+# ---------------------------------------------------------------------------
+
+
+class TestVaultSecretNotOnCLI:
+    """VaultProvider.set() must pipe the secret via stdin, not as a CLI arg.
+
+    Prior to this fix, the secret was passed as `value=SECRET` on the command
+    line, making it visible to any local user via `ps aux` or /proc/cmdline.
+    """
+
+    def test_vault_set_passes_value_via_stdin(self, declaw_secrets_mod):
+        """The 'value=-' arg tells vault to read from stdin, and input= pipes it."""
+        provider = declaw_secrets_mod.VaultProvider({"vault": {
+            "addr": "http://127.0.0.1:8200",
+            "token": "test-token",
+            "mount": "secret",
+            "path": "declaw",
+        }})
+        provider.token = "test-token"
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            provider.set("MY_KEY", "super-secret-value")
+
+            mock_run.assert_called_once()
+            call_args = mock_run.call_args
+
+            # The command list should contain "value=-", NOT "value=super-secret-value"
+            cmd_list = call_args[0][0]
+            assert "value=-" in cmd_list, "Secret should be read from stdin, not CLI arg"
+            assert not any("super-secret-value" in str(arg) for arg in cmd_list), \
+                "Secret value must NOT appear in command arguments"
+
+            # The secret should be passed via input= kwarg
+            assert call_args[1].get("input") == "super-secret-value", \
+                "Secret must be piped via stdin (input= kwarg)"
+            assert call_args[1].get("text") is True, \
+                "text=True is required when passing string input"
+
+
+# ---------------------------------------------------------------------------
+# Keychain index-based list_keys (security fix: no dump-keychain)
+# ---------------------------------------------------------------------------
+
+
+class TestKeychainIndexBasedListing:
+    """KeychainProvider.list_keys() must use a key index instead of
+    dump-keychain, which would read the entire user keychain into memory."""
+
+    @pytest.fixture
+    def keychain_provider(self, declaw_secrets_mod, tmp_path):
+        provider = declaw_secrets_mod.KeychainProvider()
+        return provider
+
+    def test_list_keys_returns_empty_when_no_index(self, keychain_provider, tmp_path):
+        """Without an index file, list_keys returns empty list."""
+        with patch.object(Path, "home", return_value=tmp_path):
+            assert keychain_provider.list_keys() == []
+
+    def test_list_keys_returns_verified_keys_from_index(self, keychain_provider, tmp_path):
+        """Keys in the index that still exist in keychain are returned."""
+        index_file = tmp_path / ".declaw" / "keychain-index.json"
+        index_file.parent.mkdir(parents=True, exist_ok=True)
+        index_file.write_text('["KEY_A", "KEY_B", "KEY_GONE"]')
+
+        # Mock get() to say KEY_A and KEY_B exist, KEY_GONE doesn't
+        def mock_get(key):
+            return "value" if key in ("KEY_A", "KEY_B") else None
+
+        with patch.object(Path, "home", return_value=tmp_path), \
+             patch.object(keychain_provider, "get", side_effect=mock_get), \
+             patch.object(keychain_provider, "_save_key_index"):
+            result = keychain_provider.list_keys()
+            assert "KEY_A" in result
+            assert "KEY_B" in result
+            assert "KEY_GONE" not in result
+
+    def test_list_keys_does_not_call_dump_keychain(self, keychain_provider, tmp_path):
+        """The old dump-keychain approach must NOT be used."""
+        index_file = tmp_path / ".declaw" / "keychain-index.json"
+        index_file.parent.mkdir(parents=True, exist_ok=True)
+        index_file.write_text('["MY_KEY"]')
+
+        with patch.object(Path, "home", return_value=tmp_path), \
+             patch.object(keychain_provider, "get", return_value="val"), \
+             patch("subprocess.run") as mock_run:
+            keychain_provider.list_keys()
+            # subprocess.run should NOT be called (no dump-keychain)
+            mock_run.assert_not_called()
+
+    def test_set_updates_key_index(self, declaw_secrets_mod, tmp_path):
+        """After set(), the key should appear in the index file."""
+        provider = declaw_secrets_mod.KeychainProvider()
+
+        index_file = tmp_path / ".declaw" / "keychain-index.json"
+
+        with patch.object(Path, "home", return_value=tmp_path), \
+             patch.object(provider, "get", return_value=None), \
+             patch("subprocess.run"):  # mock the actual keychain call
+            provider._update_key_index("NEW_KEY")
+
+        assert index_file.exists()
+        keys = json.loads(index_file.read_text())
+        assert "NEW_KEY" in keys
+
+    def test_index_file_has_600_permissions(self, declaw_secrets_mod, tmp_path):
+        """The keychain index must be owner-only (chmod 600)."""
+        provider = declaw_secrets_mod.KeychainProvider()
+
+        with patch.object(Path, "home", return_value=tmp_path):
+            provider._save_key_index(["TEST_KEY"])
+
+        index_file = tmp_path / ".declaw" / "keychain-index.json"
+        mode = index_file.stat().st_mode
+        assert stat.S_IMODE(mode) == 0o600
+
+
+# ---------------------------------------------------------------------------
 # SecretsManager._get_provider
 # ---------------------------------------------------------------------------
 

@@ -477,6 +477,89 @@ class TestKillSwitchFileCreation:
         assert block_data["severity"] == "CRITICAL"
         assert block_data["reason"] == "Test pattern"
 
+    def test_kill_uses_exact_match_docker_filter(self, declaw_monitor_mod, tmp_path):
+        """Docker --filter should use ^name$ anchors to prevent partial matches."""
+        openclaw_dir = tmp_path / ".openclaw"
+        openclaw_dir.mkdir()
+        (openclaw_dir / "agents").mkdir()
+
+        det = declaw_monitor_mod.AnomalyDetector(
+            openclaw_dir=openclaw_dir,
+            kill_switch=True,
+        )
+        det.audit_file = tmp_path / "audit.log"
+
+        pattern = declaw_monitor_mod.DetectionPattern(
+            id="TEST", name="Test", severity="CRITICAL",
+            regex="test", action="kill", description="Test"
+        )
+
+        (tmp_path / ".declaw").mkdir(exist_ok=True)
+        mock_ps = MagicMock()
+        mock_ps.stdout = "abc123\n"
+        mock_kill = MagicMock()
+
+        with patch("subprocess.run", side_effect=[mock_ps, mock_kill]) as mock_run, \
+             patch.object(Path, "home", return_value=tmp_path):
+            det._kill_container("my-agent", pattern)
+
+        # First call should be docker ps with exact match filter
+        ps_call = mock_run.call_args_list[0]
+        cmd_list = ps_call[0][0]
+        filter_arg = [a for a in cmd_list if a.startswith("name=")][0]
+        assert filter_arg == "name=^my-agent$", \
+            f"Docker filter should use ^...$ anchors, got: {filter_arg}"
+
+    def test_kill_rejects_invalid_agent_id(self, declaw_monitor_mod, tmp_path):
+        """agent_id with shell metacharacters must be rejected before
+        reaching Docker. This prevents filter injection."""
+        openclaw_dir = tmp_path / ".openclaw"
+        openclaw_dir.mkdir()
+        (openclaw_dir / "agents").mkdir()
+
+        det = declaw_monitor_mod.AnomalyDetector(
+            openclaw_dir=openclaw_dir,
+            kill_switch=True,
+        )
+        det.audit_file = tmp_path / "audit.log"
+
+        pattern = declaw_monitor_mod.DetectionPattern(
+            id="TEST", name="Test", severity="CRITICAL",
+            regex="test", action="kill", description="Test"
+        )
+
+        # These should all be rejected before any subprocess call
+        bad_ids = [
+            'agent; rm -rf /',
+            'agent$(whoami)',
+            'agent|grep',
+            'agent && evil',
+            'agent`id`',
+            '',  # empty
+            'a' * 200,  # too long
+        ]
+
+        with patch("subprocess.run") as mock_run:
+            for bad_id in bad_ids:
+                det._kill_container(bad_id, pattern)
+            # No Docker commands should have been executed
+            mock_run.assert_not_called()
+
+    def test_kill_accepts_valid_agent_ids(self, declaw_monitor_mod, tmp_path):
+        """Normal agent IDs with alphanumeric, dots, underscores, hyphens should work."""
+        det = declaw_monitor_mod.AnomalyDetector.__new__(declaw_monitor_mod.AnomalyDetector)
+
+        valid_ids = [
+            "my-agent",
+            "agent_v2",
+            "agent.prod.1",
+            "Agent-123_test.v2",
+        ]
+
+        for agent_id in valid_ids:
+            assert det._validate_agent_id(agent_id), \
+                f"Valid agent_id rejected: {agent_id}"
+
     def test_no_blocked_file_when_container_not_found(self, declaw_monitor_mod, tmp_path):
         openclaw_dir = tmp_path / ".openclaw"
         openclaw_dir.mkdir()
