@@ -648,6 +648,86 @@ class TestSeverityOrdering:
 
 
 # ---------------------------------------------------------------------------
+# Audit event emission
+# ---------------------------------------------------------------------------
+
+
+class TestDoctorAuditEvents:
+    """run_checks() and auto_fix() emit structured events to audit.jsonl."""
+
+    def test_run_checks_emits_events(self, declaw_doctor_mod, insecure_config, tmp_path):
+        auditor = _make_auditor(declaw_doctor_mod, insecure_config)
+        # Patch emit_event to capture calls
+        events = []
+        original_emit = declaw_doctor_mod.emit_event
+
+        def capture_emit(**kwargs):
+            events.append(kwargs)
+            return original_emit(**dict(kwargs, audit_path=tmp_path / "audit.jsonl"))
+
+        with patch.object(declaw_doctor_mod, "emit_event", side_effect=capture_emit):
+            auditor.run_checks()
+
+        # Should have one event per check (13 checks)
+        assert len(events) == 13
+        # All events should be from declaw-doctor
+        assert all(e["source"] == "declaw-doctor" for e in events)
+        assert all(e["category"] == "config.check" for e in events)
+        # At least some failures (insecure config triggers issues)
+        outcomes = [e["outcome"] for e in events]
+        assert "failure" in outcomes
+        assert "success" in outcomes
+
+    def test_auto_fix_emits_events(self, declaw_doctor_mod, insecure_config, tmp_path):
+        auditor = _make_auditor(declaw_doctor_mod, insecure_config)
+        events = []
+        original_emit = declaw_doctor_mod.emit_event
+
+        def capture_emit(**kwargs):
+            events.append(kwargs)
+            return original_emit(**dict(kwargs, audit_path=tmp_path / "audit.jsonl"))
+
+        with patch.object(declaw_doctor_mod, "emit_event", side_effect=capture_emit):
+            fixed = auditor.auto_fix(dry_run=False)
+
+        fix_events = [e for e in events if e["category"] == "config.fix"]
+        assert len(fix_events) == fixed
+        assert all(e["outcome"] == "success" for e in fix_events)
+
+    def test_dry_run_does_not_emit_fix_events(self, declaw_doctor_mod, insecure_config, tmp_path):
+        auditor = _make_auditor(declaw_doctor_mod, insecure_config)
+        events = []
+        original_emit = declaw_doctor_mod.emit_event
+
+        def capture_emit(**kwargs):
+            events.append(kwargs)
+            return original_emit(**dict(kwargs, audit_path=tmp_path / "audit.jsonl"))
+
+        with patch.object(declaw_doctor_mod, "emit_event", side_effect=capture_emit):
+            auditor.auto_fix(dry_run=True)
+
+        fix_events = [e for e in events if e["category"] == "config.fix"]
+        assert len(fix_events) == 0
+
+    def test_check_event_detail_fields(self, declaw_doctor_mod, insecure_config, tmp_path):
+        auditor = _make_auditor(declaw_doctor_mod, insecure_config)
+        events = []
+        original_emit = declaw_doctor_mod.emit_event
+
+        def capture_emit(**kwargs):
+            events.append(kwargs)
+            return original_emit(**dict(kwargs, audit_path=tmp_path / "audit.jsonl"))
+
+        with patch.object(declaw_doctor_mod, "emit_event", side_effect=capture_emit):
+            auditor.run_checks()
+
+        for event in events:
+            assert "checkId" in event["detail"]
+            assert "title" in event["detail"]
+            assert "message" in event["detail"]
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 

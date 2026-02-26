@@ -2,9 +2,9 @@
 target-version = "py310"
 line-length = 100
 extend-include = [
-    "scripts/declaw-secrets/declaw-secrets",
-    "scripts/declaw-doctor/declaw-doctor",
-    "scripts/declaw-monitor/declaw-monitor",
+  "scripts/declaw-secrets/declaw-secrets",
+  "scripts/declaw-doctor/declaw-doctor",
+  "scripts/declaw-monitor/declaw-monitor",
 ]
 
 [tool.ruff.lint]

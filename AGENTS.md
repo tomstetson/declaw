@@ -23,6 +23,7 @@ AI gateway.
 | `src/lib/declaw-plugin-security.ts`     | Plugin security scanning policy (Phase 2)           | Plugin security bugs or extensions   |
 | `src/lib/declaw-events.ts`              | Canonical security event type/categories (Phase 3)  | Adding event categories or fields    |
 | `src/lib/declaw-audit.ts`               | Structured audit logger → ~/.declaw/audit.jsonl     | Audit logging bugs or new emitters   |
+| `src/lib/declaw-metrics.ts`             | In-memory metrics counters (Phase 3)                | Metrics/dashboard integration        |
 | `scripts/declaw-common/event_schema.py` | Python mirror of event schema                       | Python tool observability changes    |
 | `docs/adr/004-unified-observability.md` | ADR for Phase 3 observability architecture          | Understanding audit design decisions |
 | `package.json`                          | DeClaw branding, bin entries, version               | Version bumps or dependency changes  |
@@ -40,16 +41,16 @@ AI gateway.
 
 ## Common Tasks
 
-| Task                  | Command                                                                                                                                                                                                                                                                                               |
-| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Run all tests         | `pnpm test`                                                                                                                                                                                                                                                                                           |
-| Run DeClaw tests only | `pnpm test src/lib/secrets.test.ts src/config/env-substitution.test.ts src/lib/declaw-command-policy.test.ts src/lib/declaw-egress-policy.test.ts src/lib/declaw-plugin-security.test.ts src/lib/declaw-events.test.ts src/lib/declaw-audit.test.ts src/config/secret-resolution.integration.test.ts` |
-| Type check            | `pnpm tsgo`                                                                                                                                                                                                                                                                                           |
-| Lint + format check   | `pnpm check`                                                                                                                                                                                                                                                                                          |
-| Fix formatting        | `pnpm format:fix`                                                                                                                                                                                                                                                                                     |
-| Test secrets tool     | `python3 scripts/declaw-secrets/declaw-secrets --help`                                                                                                                                                                                                                                                |
-| Test doctor tool      | `python3 scripts/declaw-doctor/declaw-doctor --help`                                                                                                                                                                                                                                                  |
-| Test monitor tool     | `python3 scripts/declaw-monitor/declaw-monitor --help`                                                                                                                                                                                                                                                |
+| Task                  | Command                                                                                                                                                                                                                                                                                                                              |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Run all tests         | `pnpm test`                                                                                                                                                                                                                                                                                                                          |
+| Run DeClaw tests only | `pnpm test src/lib/secrets.test.ts src/config/env-substitution.test.ts src/lib/declaw-command-policy.test.ts src/lib/declaw-egress-policy.test.ts src/lib/declaw-plugin-security.test.ts src/lib/declaw-events.test.ts src/lib/declaw-audit.test.ts src/lib/declaw-metrics.test.ts src/config/secret-resolution.integration.test.ts` |
+| Type check            | `pnpm tsgo`                                                                                                                                                                                                                                                                                                                          |
+| Lint + format check   | `pnpm check`                                                                                                                                                                                                                                                                                                                         |
+| Fix formatting        | `pnpm format:fix`                                                                                                                                                                                                                                                                                                                    |
+| Test secrets tool     | `python3 scripts/declaw-secrets/declaw-secrets --help`                                                                                                                                                                                                                                                                               |
+| Test doctor tool      | `python3 scripts/declaw-doctor/declaw-doctor --help`                                                                                                                                                                                                                                                                                 |
+| Test monitor tool     | `python3 scripts/declaw-monitor/declaw-monitor --help`                                                                                                                                                                                                                                                                               |
 
 ## Directory Structure (DeClaw-Specific)
 
@@ -80,6 +81,8 @@ src/
     declaw-events.test.ts        # Tests (6)
     declaw-audit.ts              # Structured audit logger (Phase 3)
     declaw-audit.test.ts         # Tests (14)
+    declaw-metrics.ts            # In-memory metrics counters (Phase 3)
+    declaw-metrics.test.ts       # Tests (9)
   config/
     env-substitution.ts          # Modified for secret:// support + audit events
     env-substitution.test.ts     # Tests (includes secret:// cases)
@@ -95,7 +98,7 @@ tests/
   python/
     conftest.py                  # Shared pytest fixtures
     test_declaw_secrets.py       # 45 tests
-    test_declaw_doctor.py        # 64 tests (includes Phase 2 checks)
-    test_declaw_monitor.py       # 108 tests
+    test_declaw_doctor.py        # 68 tests (Phase 2 checks + audit events)
+    test_declaw_monitor.py       # 110 tests
     test_declaw_events.py        # 12 tests (Phase 3 event schema)
 ```

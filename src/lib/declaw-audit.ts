@@ -17,6 +17,7 @@ import os from "node:os";
 import path from "node:path";
 import { createSubsystemLogger } from "../logging/subsystem.js";
 import type { DeclawEventInput, DeclawSecurityEvent } from "./declaw-events.js";
+import { incrementDeclawMetrics } from "./declaw-metrics.js";
 
 // ---------------------------------------------------------------------------
 // Subsystem logger (routes to OpenClaw's file + console logging)
@@ -98,6 +99,9 @@ export function emitDeclawEvent(input: DeclawEventInput): void {
 
   // Write to audit file
   appendAuditEntry(event);
+
+  // Increment in-memory metrics counters
+  incrementDeclawMetrics(event);
 
   // Log via subsystem logger (appears in OpenClaw's log files and console)
   const message = `${event.category}: ${formatDetail(event)}`;

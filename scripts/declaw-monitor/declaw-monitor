@@ -21,6 +21,11 @@ from urllib.error import URLError
 from urllib.parse import parse_qs, urlparse
 from urllib.request import Request, urlopen
 
+# DeClaw unified event schema
+_SCRIPTS_DIR = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(_SCRIPTS_DIR / "declaw-common"))
+from event_schema import emit_event  # noqa: E402
+
 
 class DetectionPattern:
     """Anomaly detection pattern."""
@@ -275,9 +280,8 @@ class AnomalyDetector:
             webhook_urls=alert_webhook, verbose=verbose
         )
 
-        # Audit log
-        self.audit_file = Path.home() / ".declaw" / "monitor-audit.log"
-        self.audit_file.parent.mkdir(parents=True, exist_ok=True)
+        # Audit log (unified path)
+        self.audit_file = Path.home() / ".declaw" / "audit.jsonl"
 
         # Detection counters
         self.detections = {
@@ -399,6 +403,18 @@ class AnomalyDetector:
 
     def monitor(self, agent_id: Optional[str] = None):
         """Start monitoring sessions."""
+        emit_event(
+            source="declaw-monitor",
+            category="monitor.start",
+            severity="info",
+            detail={
+                "openclawDir": str(self.openclaw_dir),
+                "killSwitch": self.kill_switch_enabled,
+                "patternCount": len(self.patterns),
+            },
+            outcome="success",
+            audit_path=self.audit_file,
+        )
         print(f"🔍 DeClaw Monitor starting...")
         print(f"   Monitoring: {self.openclaw_dir}")
         print(f"   Kill switch: {'ENABLED' if self.kill_switch_enabled else 'DISABLED'}")
@@ -541,9 +557,23 @@ class AnomalyDetector:
         print(f"   Action: {pattern.action.upper()}")
 
     def _log_detection(self, detection: Dict):
-        """Log detection to audit file."""
-        with open(self.audit_file, 'a') as f:
-            f.write(json.dumps(detection) + "\n")
+        """Log detection to unified audit trail."""
+        emit_event(
+            source="declaw-monitor",
+            category="monitor.detection",
+            severity=detection.get("severity", "medium").lower(),
+            detail={
+                "pattern": detection.get("pattern_id", "unknown"),
+                "patternName": detection.get("pattern_name", "unknown"),
+                "tool": detection.get("tool", "unknown"),
+                "context": detection.get("context", "")[:200],
+                "action": detection.get("action", "alert"),
+                "sessionFile": detection.get("session_file", ""),
+            },
+            outcome="denied" if detection.get("action") == "kill" else "warning",
+            agent_id=detection.get("agent_id"),
+            audit_path=self.audit_file,
+        )
 
     @staticmethod
     def _validate_agent_id(agent_id: str) -> bool:
@@ -583,6 +613,19 @@ class AnomalyDetector:
                     capture_output=True
                 )
                 print(f"   ✅ Container {container_id[:12]} killed")
+
+                emit_event(
+                    source="declaw-monitor",
+                    category="monitor.kill",
+                    severity="critical",
+                    detail={
+                        "pattern": pattern.id,
+                        "containerId": container_id[:12],
+                    },
+                    outcome="success",
+                    agent_id=agent_id,
+                    audit_path=self.audit_file,
+                )
 
                 # Create block file (prevent restart)
                 block_file = Path.home() / ".declaw" / f"{agent_id}.blocked"
@@ -658,7 +701,7 @@ def cmd_monitor(args):
 
 def cmd_audit(args):
     """Show detection audit log."""
-    audit_file = Path.home() / ".declaw" / "monitor-audit.log"
+    audit_file = Path.home() / ".declaw" / "audit.jsonl"
 
     if not audit_file.exists():
         print("No detections logged yet")
@@ -669,20 +712,28 @@ def cmd_audit(args):
         for line in f:
             entry = json.loads(line)
 
+            # Only show declaw-monitor detection events
+            if entry.get("source") != "declaw-monitor":
+                continue
+            if entry.get("category") != "monitor.detection":
+                continue
+
+            detail = entry.get("detail", {})
+
             # Filter by agent
-            if args.agent and entry.get("agent_id") != args.agent:
+            if args.agent and entry.get("agentId") != args.agent:
                 continue
 
             # Filter by severity
-            if args.severity and entry.get("severity") != args.severity:
+            if args.severity and entry.get("severity") != args.severity.lower():
                 continue
 
             # Print
             timestamp = entry["timestamp"]
-            severity = entry["severity"]
-            pattern = entry["pattern_name"]
-            agent = entry["agent_id"]
-            action = entry["action"]
+            severity = entry["severity"].upper()
+            pattern_name = detail.get("patternName", "unknown")
+            agent = entry.get("agentId", "unknown")
+            action = detail.get("action", "alert")
 
             emoji = {
                 "CRITICAL": "🚨",
@@ -691,10 +742,10 @@ def cmd_audit(args):
                 "LOW": "ℹ️ "
             }
 
-            print(f"{timestamp} {emoji[severity]} [{severity}] {pattern}")
+            print(f"{timestamp} {emoji.get(severity, '?')} [{severity}] {pattern_name}")
             print(f"   Agent: {agent}, Action: {action.upper()}")
             if args.verbose:
-                print(f"   Context: {entry.get('context', '')}")
+                print(f"   Context: {detail.get('context', '')}")
             print()
 
 

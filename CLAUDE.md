@@ -20,6 +20,7 @@ All DeClaw additions live in these locations:
 - `src/lib/declaw-plugin-security.ts` - Plugin security scanning policy (Phase 2)
 - `src/lib/declaw-events.ts` - Canonical security event schema (Phase 3)
 - `src/lib/declaw-audit.ts` - Structured audit logger → ~/.declaw/audit.jsonl (Phase 3)
+- `src/lib/declaw-metrics.ts` - In-memory metrics counters, auto-incremented (Phase 3)
 - `src/config/env-substitution.ts` - `secret://` URI integration (lines 92-124)
 - `scripts/declaw-secrets/` - Multi-provider secrets manager (Python 3.8+)
 - `scripts/declaw-doctor/` - Config security validator (Python 3.8+, 13 checks)
@@ -98,13 +99,14 @@ This means `secret://ANTHROPIC_API_KEY` resolves from the vault, while
   `src/lib/declaw-command-policy.test.ts`, `src/lib/declaw-egress-policy.test.ts`,
   `src/lib/declaw-events.test.ts`, `src/lib/declaw-audit.test.ts`,
   `src/config/secret-resolution.integration.test.ts`
-- Python tool tests: `python3 -m pytest tests/python/ -v` (229 tests)
-- Test counts: 180 vitest (41 existing + 139 DeClaw) + 229 pytest = 409 total
+- Python tool tests: `python3 -m pytest tests/python/ -v` (235 tests)
+- Test counts: 189 vitest (41 existing + 148 DeClaw) + 235 pytest = 424 total
 
 ## Current State (v1.0.0-alpha)
 
 **Working:** secret:// URI resolution, secrets.ts bridge, all 3 Python tools,
 command policy enforcement, egress policy enforcement, webhook alerts (4 providers),
 plugin security scanning (policy evaluation, integrity verification, sandbox compat),
-unified audit trail (Phase 3: event schema, JSONL logger, instrumented hooks)
+unified audit trail (Phase 3: event schema, JSONL logger, instrumented hooks),
+in-memory metrics counters, Python tools migrated to unified event schema
 **Tested e2e:** secret:// URI resolution through full config loading pipeline

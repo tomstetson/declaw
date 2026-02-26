@@ -12,6 +12,11 @@ import sys
 from pathlib import Path
 from typing import Dict, List, Tuple
 
+# DeClaw unified event schema
+_SCRIPTS_DIR = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(_SCRIPTS_DIR / "declaw-common"))
+from event_schema import emit_event  # noqa: E402
+
 
 class SecurityCheck:
     """Individual security check."""
@@ -55,6 +60,19 @@ class ConfigAuditor:
         for check in checks:
             result = check.check_fn(self.config)
 
+            # Emit structured audit event for every check
+            emit_event(
+                source="declaw-doctor",
+                category="config.check",
+                severity=check.severity.lower(),
+                detail={
+                    "checkId": check.id,
+                    "title": check.title,
+                    "message": result or "passed",
+                },
+                outcome="failure" if result else "success",
+            )
+
             if result:
                 issue = {
                     "id": check.id,
@@ -93,6 +111,13 @@ class ConfigAuditor:
                         print(f"🔧 Fixing: {check.title}")
                     check.fix_fn(self.config)
                     fixed_count += 1
+                    emit_event(
+                        source="declaw-doctor",
+                        category="config.fix",
+                        severity=check.severity.lower(),
+                        detail={"checkId": check.id, "title": check.title},
+                        outcome="success",
+                    )
 
         return fixed_count
 

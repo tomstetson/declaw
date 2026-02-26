@@ -42,7 +42,7 @@ class TestDetectionPatterns:
             kill_switch=False,
             verbose=False,
         )
-        det.audit_file = tmp_path / "monitor-audit.log"
+        det.audit_file = tmp_path / "audit.jsonl"
         return det
 
     def _find_pattern(self, detector, pattern_id):
@@ -236,7 +236,7 @@ class TestPatternLoading:
         (openclaw_dir / "agents").mkdir()
 
         det = declaw_monitor_mod.AnomalyDetector(openclaw_dir=openclaw_dir)
-        det.audit_file = tmp_path / "audit.log"
+        det.audit_file = tmp_path / "audit.jsonl"
 
         assert len(det.patterns) == 10
 
@@ -246,7 +246,7 @@ class TestPatternLoading:
         (openclaw_dir / "agents").mkdir()
 
         det = declaw_monitor_mod.AnomalyDetector(openclaw_dir=openclaw_dir)
-        det.audit_file = tmp_path / "audit.log"
+        det.audit_file = tmp_path / "audit.jsonl"
 
         for p in det.patterns:
             assert p.id, "Pattern must have an id"
@@ -262,7 +262,7 @@ class TestPatternLoading:
         (openclaw_dir / "agents").mkdir()
 
         det = declaw_monitor_mod.AnomalyDetector(openclaw_dir=openclaw_dir)
-        det.audit_file = tmp_path / "audit.log"
+        det.audit_file = tmp_path / "audit.jsonl"
 
         counts = {}
         for p in det.patterns:
@@ -294,7 +294,7 @@ class TestSeverityClassification:
             openclaw_dir=openclaw_dir,
             kill_switch=True,
         )
-        det.audit_file = tmp_path / "audit.log"
+        det.audit_file = tmp_path / "audit.jsonl"
 
         # Find a CRITICAL/kill pattern
         kill_pattern = None
@@ -324,7 +324,7 @@ class TestSeverityClassification:
             openclaw_dir=openclaw_dir,
             kill_switch=True,
         )
-        det.audit_file = tmp_path / "audit.log"
+        det.audit_file = tmp_path / "audit.jsonl"
 
         alert_pattern = None
         for p in det.patterns:
@@ -354,7 +354,7 @@ class TestSeverityClassification:
             openclaw_dir=openclaw_dir,
             kill_switch=False,
         )
-        det.audit_file = tmp_path / "audit.log"
+        det.audit_file = tmp_path / "audit.jsonl"
 
         kill_pattern = None
         for p in det.patterns:
@@ -379,7 +379,7 @@ class TestSeverityClassification:
 
 
 class TestMonitorAuditLog:
-    """_log_detection writes JSONL to the audit file."""
+    """_log_detection writes JSONL to the audit file using unified schema."""
 
     def test_log_creates_jsonl_entry(self, declaw_monitor_mod, tmp_path):
         openclaw_dir = tmp_path / ".openclaw"
@@ -387,7 +387,7 @@ class TestMonitorAuditLog:
         (openclaw_dir / "agents").mkdir()
 
         det = declaw_monitor_mod.AnomalyDetector(openclaw_dir=openclaw_dir)
-        det.audit_file = tmp_path / "audit.log"
+        det.audit_file = tmp_path / "audit.jsonl"
 
         detection = {
             "timestamp": "2025-01-01T00:00:00Z",
@@ -408,10 +408,11 @@ class TestMonitorAuditLog:
         assert len(lines) == 1
 
         entry = json.loads(lines[0])
-        assert entry["event_type"] == "anomaly_detected"
-        assert entry["pattern_id"] == "ENV_ACCESS"
-        assert entry["severity"] == "CRITICAL"
-        assert entry["agent_id"] == "test-agent"
+        assert entry["source"] == "declaw-monitor"
+        assert entry["category"] == "monitor.detection"
+        assert entry["severity"] == "critical"
+        assert entry["detail"]["pattern"] == "ENV_ACCESS"
+        assert entry["agentId"] == "test-agent"
 
     def test_multiple_detections_append(self, declaw_monitor_mod, tmp_path):
         openclaw_dir = tmp_path / ".openclaw"
@@ -419,10 +420,18 @@ class TestMonitorAuditLog:
         (openclaw_dir / "agents").mkdir()
 
         det = declaw_monitor_mod.AnomalyDetector(openclaw_dir=openclaw_dir)
-        det.audit_file = tmp_path / "audit.log"
+        det.audit_file = tmp_path / "audit.jsonl"
 
         for i in range(3):
-            det._log_detection({"entry": i})
+            det._log_detection({
+                "pattern_id": f"P{i}",
+                "pattern_name": f"Pattern {i}",
+                "severity": "LOW",
+                "agent_id": "agent",
+                "tool": "bash",
+                "context": "test",
+                "action": "alert",
+            })
 
         lines = det.audit_file.read_text().strip().split("\n")
         assert len(lines) == 3
@@ -445,7 +454,7 @@ class TestKillSwitchFileCreation:
             openclaw_dir=openclaw_dir,
             kill_switch=True,
         )
-        det.audit_file = tmp_path / "audit.log"
+        det.audit_file = tmp_path / "audit.jsonl"
 
         pattern = declaw_monitor_mod.DetectionPattern(
             id="TEST", name="Test", severity="CRITICAL",
@@ -486,7 +495,7 @@ class TestKillSwitchFileCreation:
             openclaw_dir=openclaw_dir,
             kill_switch=True,
         )
-        det.audit_file = tmp_path / "audit.log"
+        det.audit_file = tmp_path / "audit.jsonl"
 
         pattern = declaw_monitor_mod.DetectionPattern(
             id="TEST", name="Test", severity="CRITICAL",
@@ -520,7 +529,7 @@ class TestKillSwitchFileCreation:
             openclaw_dir=openclaw_dir,
             kill_switch=True,
         )
-        det.audit_file = tmp_path / "audit.log"
+        det.audit_file = tmp_path / "audit.jsonl"
 
         pattern = declaw_monitor_mod.DetectionPattern(
             id="TEST", name="Test", severity="CRITICAL",
@@ -568,7 +577,7 @@ class TestKillSwitchFileCreation:
             openclaw_dir=openclaw_dir,
             kill_switch=True,
         )
-        det.audit_file = tmp_path / "audit.log"
+        det.audit_file = tmp_path / "audit.jsonl"
 
         pattern = declaw_monitor_mod.DetectionPattern(
             id="TEST", name="Test", severity="CRITICAL",
@@ -605,7 +614,7 @@ class TestDetectionCounters:
             openclaw_dir=openclaw_dir,
             kill_switch=False,
         )
-        det.audit_file = tmp_path / "audit.log"
+        det.audit_file = tmp_path / "audit.jsonl"
         return det
 
     def test_critical_counter_increments(self, detector, declaw_monitor_mod):
@@ -658,7 +667,7 @@ class TestAnalyzeLine:
             openclaw_dir=openclaw_dir,
             kill_switch=False,
         )
-        det.audit_file = tmp_path / "audit.log"
+        det.audit_file = tmp_path / "audit.jsonl"
         return det
 
     def test_tool_use_with_suspicious_input_triggers(self, detector, tmp_path):
@@ -1145,7 +1154,7 @@ class TestSendAlertIntegration:
             kill_switch=False,
             verbose=True,
         )
-        det.audit_file = tmp_path / "audit.log"
+        det.audit_file = tmp_path / "audit.jsonl"
         return det
 
     @pytest.fixture
@@ -1158,7 +1167,7 @@ class TestSendAlertIntegration:
             openclaw_dir=openclaw_dir,
             kill_switch=False,
         )
-        det.audit_file = tmp_path / "audit.log"
+        det.audit_file = tmp_path / "audit.jsonl"
         return det
 
     def test_send_alert_calls_dispatcher(self, detector_with_webhook, declaw_monitor_mod):
@@ -1194,7 +1203,7 @@ class TestSendAlertIntegration:
             alert_webhook="https://hook.example.com",
             kill_switch=True,
         )
-        det.audit_file = tmp_path / "audit.log"
+        det.audit_file = tmp_path / "audit.jsonl"
 
         pattern = declaw_monitor_mod.DetectionPattern(
             id="T", name="T", severity="CRITICAL", regex="x", action="kill"
@@ -1222,7 +1231,7 @@ class TestSendAlertIntegration:
             alert_webhook="https://hook.example.com",
             kill_switch=False,
         )
-        det.audit_file = tmp_path / "audit.log"
+        det.audit_file = tmp_path / "audit.jsonl"
 
         pattern = declaw_monitor_mod.DetectionPattern(
             id="T", name="T", severity="HIGH", regex="x", action="alert"
@@ -1254,7 +1263,7 @@ class TestPrintSummaryAlerts:
             openclaw_dir=openclaw_dir,
             alert_webhook="https://hook.example.com",
         )
-        det.audit_file = tmp_path / "audit.log"
+        det.audit_file = tmp_path / "audit.jsonl"
 
         # Simulate some alert activity
         det.alert_dispatcher.send_count = 5
@@ -1272,9 +1281,77 @@ class TestPrintSummaryAlerts:
         (openclaw_dir / "agents").mkdir()
 
         det = declaw_monitor_mod.AnomalyDetector(openclaw_dir=openclaw_dir)
-        det.audit_file = tmp_path / "audit.log"
+        det.audit_file = tmp_path / "audit.jsonl"
 
         det._print_summary()
         output = capsys.readouterr().out
 
         assert "Alerts:" not in output
+
+
+# ---------------------------------------------------------------------------
+# Unified event schema integration
+# ---------------------------------------------------------------------------
+
+
+class TestUnifiedEventSchema:
+    """Monitor emits events using the declaw-common event_schema."""
+
+    def test_log_detection_uses_unified_schema(self, declaw_monitor_mod, tmp_path):
+        openclaw_dir = tmp_path / ".openclaw"
+        openclaw_dir.mkdir()
+        (openclaw_dir / "agents").mkdir()
+
+        det = declaw_monitor_mod.AnomalyDetector(openclaw_dir=openclaw_dir)
+        det.audit_file = tmp_path / "audit.jsonl"
+
+        detection = {
+            "pattern_id": "ENV_ACCESS",
+            "pattern_name": "Environment variable access",
+            "severity": "HIGH",
+            "agent_id": "test-agent",
+            "session_file": "/path/to/session.jsonl",
+            "tool": "bash",
+            "context": "printenv SECRET",
+            "action": "alert",
+        }
+
+        det._log_detection(detection)
+
+        lines = det.audit_file.read_text().strip().split("\n")
+        entry = json.loads(lines[0])
+
+        # Unified schema fields
+        assert entry["version"] == 1
+        assert entry["source"] == "declaw-monitor"
+        assert entry["category"] == "monitor.detection"
+        assert "timestamp" in entry
+        assert "pid" in entry
+        assert "user" in entry
+        # Detail bag
+        assert entry["detail"]["pattern"] == "ENV_ACCESS"
+        assert entry["detail"]["patternName"] == "Environment variable access"
+        assert entry["detail"]["tool"] == "bash"
+
+    def test_detection_outcome_maps_to_action(self, declaw_monitor_mod, tmp_path):
+        openclaw_dir = tmp_path / ".openclaw"
+        openclaw_dir.mkdir()
+        (openclaw_dir / "agents").mkdir()
+
+        det = declaw_monitor_mod.AnomalyDetector(openclaw_dir=openclaw_dir)
+        det.audit_file = tmp_path / "audit.jsonl"
+
+        # Kill action -> "denied" outcome
+        det._log_detection({
+            "pattern_id": "P1", "pattern_name": "P1", "severity": "CRITICAL",
+            "agent_id": "a", "tool": "bash", "context": "x", "action": "kill",
+        })
+        # Alert action -> "warning" outcome
+        det._log_detection({
+            "pattern_id": "P2", "pattern_name": "P2", "severity": "LOW",
+            "agent_id": "b", "tool": "bash", "context": "y", "action": "alert",
+        })
+
+        lines = det.audit_file.read_text().strip().split("\n")
+        assert json.loads(lines[0])["outcome"] == "denied"
+        assert json.loads(lines[1])["outcome"] == "warning"

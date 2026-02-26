@@ -217,8 +217,8 @@ class TestAuditLogging:
              patch.object(declaw_secrets_mod.BitwardenProvider, "is_available", return_value=False), \
              patch.object(declaw_secrets_mod.OnePasswordProvider, "is_available", return_value=False):
             mgr = declaw_secrets_mod.SecretsManager(provider="env", audit=True)
-            # Redirect file paths to tmp
-            mgr.audit_file = tmp_path / "audit.log"
+            # Redirect file paths to tmp (unified audit.jsonl)
+            mgr.audit_file = tmp_path / "audit.jsonl"
             mgr.provider.env_file = tmp_path / "secrets.env"
             return mgr
 
@@ -233,11 +233,12 @@ class TestAuditLogging:
         assert len(lines) >= 2
 
         get_entry = json.loads(lines[-1])
-        assert get_entry["event_type"] == "secret_access"
-        assert get_entry["action"] == "get"
-        assert get_entry["key"] == "TEST_KEY"
-        assert get_entry["success"] is True
-        assert get_entry["provider"] == "env"
+        assert get_entry["source"] == "declaw-secrets"
+        assert get_entry["category"] == "secret.access"
+        assert get_entry["detail"]["action"] == "get"
+        assert get_entry["detail"]["key"] == "TEST_KEY"
+        assert get_entry["outcome"] == "success"
+        assert get_entry["detail"]["provider"] == "env"
 
     def test_set_logs_access(self, manager_with_env):
         mgr = manager_with_env
@@ -245,9 +246,9 @@ class TestAuditLogging:
 
         lines = mgr.audit_file.read_text().strip().split("\n")
         set_entry = json.loads(lines[-1])
-        assert set_entry["action"] == "set"
-        assert set_entry["key"] == "NEW_KEY"
-        assert set_entry["success"] is True
+        assert set_entry["detail"]["action"] == "set"
+        assert set_entry["detail"]["key"] == "NEW_KEY"
+        assert set_entry["outcome"] == "success"
 
     def test_get_missing_key_logs_failure(self, manager_with_env):
         mgr = manager_with_env
@@ -257,15 +258,16 @@ class TestAuditLogging:
 
         lines = mgr.audit_file.read_text().strip().split("\n")
         fail_entry = json.loads(lines[-1])
-        assert fail_entry["success"] is False
-        assert fail_entry["key"] == "DOES_NOT_EXIST"
+        assert fail_entry["category"] == "secret.error"
+        assert fail_entry["outcome"] == "failure"
+        assert fail_entry["detail"]["key"] == "DOES_NOT_EXIST"
 
     def test_audit_entry_has_required_fields(self, manager_with_env):
         mgr = manager_with_env
         mgr.set("FIELD_CHECK", "val")
 
         entry = json.loads(mgr.audit_file.read_text().strip().split("\n")[-1])
-        required = {"timestamp", "event_type", "action", "key", "success", "provider", "pid", "user"}
+        required = {"timestamp", "version", "source", "category", "severity", "detail", "outcome", "pid", "user"}
         assert required.issubset(entry.keys()), f"Missing fields: {required - entry.keys()}"
 
     def test_audit_timestamp_format(self, manager_with_env):
