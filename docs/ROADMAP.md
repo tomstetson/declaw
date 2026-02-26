@@ -36,8 +36,10 @@
       (src/lib/declaw-egress-policy.ts, 20 vitest tests)
 - [x] **Doctor checks for Phase 2** — H4 (command policy) and H5 (egress policy)
       added to declaw-doctor with auto-fix support. (12 checks total, 18 new pytest tests)
-- [ ] **Webhook alerts** — implement `_send_alert()` stub in declaw-monitor.
-      Support Telegram, Slack, email (SMTP), custom webhook.
+- [x] **Webhook alerts** — AlertDispatcher with 4 providers: Telegram Bot API,
+      Slack incoming webhook, SMTP email, generic HTTPS webhook. Comma-separated
+      multi-destination support, retry logic, `test-alert` CLI subcommand.
+      (37 new pytest tests)
 - [ ] **Plugin security scanning** — pre-install GPG signature verification,
       AST-based dangerous pattern detection, sandbox compatibility checks.
 
@@ -67,7 +69,8 @@
 
 ## Priorities
 
-Phase 2 core features (command allowlist, egress filtering) are complete. The two
-largest attack vectors — arbitrary command execution and unrestricted network
-access — are now closable via config. Remaining Phase 2 items (webhook alerts,
-plugin scanning) add operational capabilities. Phase 3 focuses on observability.
+Phase 2 core features (command allowlist, egress filtering, webhook alerts) are
+complete. The two largest attack vectors — arbitrary command execution and
+unrestricted network access — are now closable via config. Webhook alerts enable
+real-time notifications when anomalies are detected. Remaining Phase 2 item
+(plugin scanning) adds supply-chain security. Phase 3 focuses on observability.

@@ -156,12 +156,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - [ ] Sandbox compatibility pre-flight checks
 - [ ] Plugin permission manifest
 
-**Webhook Alerts (Q2 2026)**
+**Webhook Alerts (Complete)**
 
-- [ ] Telegram bot notifications
-- [ ] Slack webhook integration
-- [ ] Email alerts (SMTP)
-- [ ] Custom webhook support
+- [x] Telegram bot notifications (telegram://BOT_TOKEN@CHAT_ID)
+- [x] Slack webhook integration (slack:// or hooks.slack.com URLs)
+- [x] Email alerts (smtp://user:pass@host:port?to=addr)
+- [x] Custom webhook support (any HTTPS URL, JSON POST)
+- [x] Multi-destination support (comma-separated URLs)
+- [x] `test-alert` CLI subcommand for verifying webhook config
 
 **ML-Based Anomaly Detection (Q3 2026)**
 

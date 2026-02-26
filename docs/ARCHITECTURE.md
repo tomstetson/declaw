@@ -281,6 +281,43 @@ flowchart TD
 
 Config: `agents.defaults.sandbox.docker.egressPolicy` or per-agent override.
 
+## Webhook Alert Dispatch (Phase 2)
+
+When `declaw-monitor` detects an anomaly, `AlertDispatcher` routes alerts to
+one or more destinations based on URL scheme:
+
+```mermaid
+flowchart TD
+    A["_handle_detection()"] --> B{"pattern.action?"}
+    B -->|"kill + kill_switch"| C["_kill_container()"]
+    C --> D["_send_alert(action='kill')"]
+    B -->|"alert"| E["_send_alert(action='alert')"]
+
+    D --> F["AlertDispatcher.send()"]
+    E --> F
+
+    F --> G["For each destination URL"]
+    G --> H{"URL scheme?"}
+    H -->|"telegram://"| I["Telegram Bot API
+    POST /sendMessage"]
+    H -->|"slack:// or hooks.slack.com"| J["Slack Incoming Webhook
+    POST JSON"]
+    H -->|"smtp://"| K["SMTP + STARTTLS
+    MIMEText email"]
+    H -->|"https://"| L["Generic Webhook
+    POST JSON"]
+    H -->|"unknown"| M["Skip + warn"]
+
+    I & J & K & L -->|"failure"| N["Retry once after 2s"]
+    N -->|"still fails"| O["Increment fail_count"]
+    I & J & K & L -->|"success"| P["Increment send_count"]
+
+    style C fill:#ffe6e6,stroke:#cc0000
+    style M fill:#fff3cd,stroke:#856404
+```
+
+Config: `declaw-monitor monitor --webhook "telegram://BOT@CHAT, https://hook.example.com"`
+
 ## Error Handling
 
 Secret resolution errors fail fast (no silent fallback):

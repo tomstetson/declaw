@@ -71,7 +71,7 @@ This means `secret://ANTHROPIC_API_KEY` resolves from the vault, while
   `../../scripts/declaw-secrets/declaw-secrets`. This breaks if file moves.
 - Python tools are standalone scripts (shebang `#!/usr/bin/env python3`), not
   importable modules. They communicate via stdout/stderr/exit codes.
-- `declaw-monitor`'s `_send_alert()` is a stub - webhook alerting not implemented.
+- `declaw-monitor` webhook alerts use stdlib only (urllib, smtplib) — no requests dependency.
 - The upstream `release-check` CI job is disabled (`if: false`) because our
   package.json version (1.0.0-alpha) doesn't match upstream plugin versions.
 - CI uses `ubuntu-latest`/`windows-latest` instead of upstream's Blacksmith runners.
@@ -89,12 +89,12 @@ This means `secret://ANTHROPIC_API_KEY` resolves from the vault, while
 - Upstream tests via `pnpm test` (vitest)
 - DeClaw TypeScript tests colocated: `src/lib/secrets.test.ts`, `src/config/env-substitution.test.ts`,
   `src/lib/declaw-command-policy.test.ts`, `src/lib/declaw-egress-policy.test.ts`
-- Python tool tests: `python3 -m pytest tests/python/ -v` (161 tests)
-- Test counts: 102 vitest (41 existing + 61 Phase 2) + 161 pytest = 263 total
+- Python tool tests: `python3 -m pytest tests/python/ -v` (198 tests)
+- Test counts: 102 vitest (41 existing + 61 Phase 2) + 198 pytest = 300 total
 
 ## Current State (v1.0.0-alpha)
 
 **Working:** secret:// URI resolution, secrets.ts bridge, all 3 Python tools,
-command policy enforcement, egress policy enforcement
+command policy enforcement, egress policy enforcement, webhook alerts (4 providers)
 **Not tested:** End-to-end secret resolution through OpenClaw config loading
-**Not implemented:** Webhook alerts, plugin scanning
+**Not implemented:** Plugin scanning

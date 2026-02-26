@@ -8,12 +8,18 @@ import argparse
 import json
 import os
 import re
+import smtplib
 import subprocess
+import ssl
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timezone
+from email.mime.text import MIMEText
 from pathlib import Path
 from typing import Dict, List, Optional
+from urllib.error import URLError
+from urllib.parse import parse_qs, urlparse
+from urllib.request import Request, urlopen
 
 
 class DetectionPattern:
@@ -29,6 +35,232 @@ class DetectionPattern:
         self.description = description
 
 
+class AlertDispatcher:
+    """Sends alerts to one or more destinations based on URL scheme.
+
+    Supported schemes:
+      - telegram://BOT_TOKEN@CHAT_ID
+      - slack://hooks.slack.com/services/... (or any hooks.slack.com URL)
+      - smtp://user:pass@host:port?to=addr&from=sender&subject=...
+      - https://... or http://... — generic JSON POST webhook
+    """
+
+    RETRY_DELAY_SEC = 2
+    TIMEOUT_SEC = 10
+
+    def __init__(self, webhook_urls: Optional[str] = None, verbose: bool = False):
+        self.verbose = verbose
+        self.destinations: List[str] = []
+        self.send_count = 0
+        self.fail_count = 0
+
+        if webhook_urls:
+            # Support comma-separated URLs
+            for url in webhook_urls.split(","):
+                stripped = url.strip()
+                if stripped:
+                    self.destinations.append(stripped)
+
+    @property
+    def configured(self) -> bool:
+        return len(self.destinations) > 0
+
+    def send(self, pattern: "DetectionPattern", agent_id: str,
+             context: str, action_taken: str = "alert") -> int:
+        """Send alert to all configured destinations. Returns success count."""
+        if not self.configured:
+            return 0
+
+        payload = self._build_payload(pattern, agent_id, context, action_taken)
+        sent = 0
+
+        for dest in self.destinations:
+            ok = self._dispatch(dest, payload)
+            if ok:
+                sent += 1
+                self.send_count += 1
+            else:
+                self.fail_count += 1
+
+        return sent
+
+    def _build_payload(self, pattern: "DetectionPattern", agent_id: str,
+                       context: str, action_taken: str) -> Dict:
+        return {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "source": "declaw-monitor",
+            "severity": pattern.severity,
+            "pattern_id": pattern.id,
+            "pattern_name": pattern.name,
+            "description": pattern.description,
+            "agent_id": agent_id,
+            "action_taken": action_taken,
+            "context": context[:500],
+        }
+
+    def _dispatch(self, dest: str, payload: Dict) -> bool:
+        """Route to the correct sender based on URL scheme."""
+        parsed = urlparse(dest)
+
+        try:
+            if parsed.scheme == "telegram":
+                return self._send_telegram(parsed, payload)
+            elif "hooks.slack.com" in dest or parsed.scheme == "slack":
+                return self._send_slack(dest, payload)
+            elif parsed.scheme == "smtp":
+                return self._send_smtp(parsed, payload)
+            elif parsed.scheme in ("https", "http"):
+                return self._send_webhook(dest, payload)
+            else:
+                if self.verbose:
+                    print(f"   ⚠️  Unknown alert scheme: {parsed.scheme}")
+                return False
+        except Exception as e:
+            if self.verbose:
+                print(f"   ❌ Alert failed ({dest[:40]}...): {e}")
+            # Retry once
+            try:
+                time.sleep(self.RETRY_DELAY_SEC)
+                if parsed.scheme == "telegram":
+                    return self._send_telegram(parsed, payload)
+                elif "hooks.slack.com" in dest or parsed.scheme == "slack":
+                    return self._send_slack(dest, payload)
+                elif parsed.scheme == "smtp":
+                    return self._send_smtp(parsed, payload)
+                elif parsed.scheme in ("https", "http"):
+                    return self._send_webhook(dest, payload)
+            except Exception:
+                pass
+            return False
+
+    def _send_webhook(self, url: str, payload: Dict) -> bool:
+        """Generic JSON POST to any HTTP(S) URL."""
+        data = json.dumps(payload).encode("utf-8")
+        req = Request(url, data=data, method="POST")
+        req.add_header("Content-Type", "application/json")
+        req.add_header("User-Agent", "DeClaw-Monitor/1.0")
+
+        resp = urlopen(req, timeout=self.TIMEOUT_SEC)
+        ok = 200 <= resp.status < 300
+        if self.verbose:
+            print(f"   📨 Webhook POST → {resp.status}")
+        return ok
+
+    def _send_telegram(self, parsed, payload: Dict) -> bool:
+        """Send via Telegram Bot API: telegram://BOT_TOKEN@CHAT_ID"""
+        bot_token = parsed.username or parsed.netloc.split("@")[0]
+        chat_id = parsed.hostname or parsed.netloc.split("@")[-1]
+
+        if not bot_token or not chat_id:
+            raise ValueError("Telegram URL format: telegram://BOT_TOKEN@CHAT_ID")
+
+        severity_emoji = {"CRITICAL": "🚨", "HIGH": "⚠️", "MEDIUM": "⚡", "LOW": "ℹ️"}
+        emoji = severity_emoji.get(payload["severity"], "📋")
+
+        text = (
+            f"{emoji} *DeClaw Alert*\n\n"
+            f"*Severity:* {payload['severity']}\n"
+            f"*Pattern:* {payload['pattern_name']}\n"
+            f"*Agent:* `{payload['agent_id']}`\n"
+            f"*Action:* {payload['action_taken'].upper()}\n"
+            f"*Description:* {payload['description']}\n\n"
+            f"`{payload['context'][:200]}`"
+        )
+
+        api_url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+        body = json.dumps({
+            "chat_id": chat_id,
+            "text": text,
+            "parse_mode": "Markdown",
+            "disable_web_page_preview": True,
+        }).encode("utf-8")
+
+        req = Request(api_url, data=body, method="POST")
+        req.add_header("Content-Type", "application/json")
+
+        resp = urlopen(req, timeout=self.TIMEOUT_SEC)
+        result = json.loads(resp.read().decode("utf-8"))
+        ok = result.get("ok", False)
+        if self.verbose:
+            print(f"   📨 Telegram → {'sent' if ok else 'failed'}")
+        return ok
+
+    def _send_slack(self, dest: str, payload: Dict) -> bool:
+        """Send via Slack incoming webhook."""
+        url = dest
+        # Normalize slack:// scheme to https://
+        if url.startswith("slack://"):
+            url = url.replace("slack://", "https://", 1)
+
+        severity_emoji = {"CRITICAL": ":rotating_light:", "HIGH": ":warning:",
+                          "MEDIUM": ":zap:", "LOW": ":information_source:"}
+        emoji = severity_emoji.get(payload["severity"], ":memo:")
+
+        body = json.dumps({
+            "text": (
+                f"{emoji} *DeClaw Alert — {payload['severity']}*\n"
+                f"Pattern: {payload['pattern_name']}\n"
+                f"Agent: `{payload['agent_id']}`\n"
+                f"Action: {payload['action_taken'].upper()}\n"
+                f"```{payload['context'][:300]}```"
+            ),
+        }).encode("utf-8")
+
+        req = Request(url, data=body, method="POST")
+        req.add_header("Content-Type", "application/json")
+
+        resp = urlopen(req, timeout=self.TIMEOUT_SEC)
+        ok = resp.status == 200
+        if self.verbose:
+            print(f"   📨 Slack → {resp.status}")
+        return ok
+
+    def _send_smtp(self, parsed, payload: Dict) -> bool:
+        """Send email via SMTP: smtp://user:pass@host:port?to=addr&from=sender"""
+        host = parsed.hostname or "localhost"
+        port = parsed.port or 587
+        user = parsed.username or ""
+        password = parsed.password or ""
+
+        params = parse_qs(parsed.query)
+        to_addr = params.get("to", [""])[0]
+        from_addr = params.get("from", [user])[0]
+        subject_prefix = params.get("subject", ["DeClaw Alert"])[0]
+
+        if not to_addr:
+            raise ValueError("SMTP URL must include ?to=recipient@example.com")
+
+        subject = f"[{payload['severity']}] {subject_prefix}: {payload['pattern_name']}"
+
+        body_text = (
+            f"DeClaw Monitor Alert\n"
+            f"{'=' * 40}\n\n"
+            f"Severity: {payload['severity']}\n"
+            f"Pattern: {payload['pattern_name']} ({payload['pattern_id']})\n"
+            f"Agent: {payload['agent_id']}\n"
+            f"Action: {payload['action_taken'].upper()}\n"
+            f"Time: {payload['timestamp']}\n\n"
+            f"Description:\n{payload['description']}\n\n"
+            f"Context:\n{payload['context']}\n"
+        )
+
+        msg = MIMEText(body_text)
+        msg["Subject"] = subject
+        msg["From"] = from_addr
+        msg["To"] = to_addr
+
+        ctx = ssl.create_default_context()
+        with smtplib.SMTP(host, port, timeout=self.TIMEOUT_SEC) as server:
+            server.starttls(context=ctx)
+            if user and password:
+                server.login(user, password)
+            server.sendmail(from_addr, [to_addr], msg.as_string())
+
+        if self.verbose:
+            print(f"   📨 Email → {to_addr}")
+        return True
+
+
 class AnomalyDetector:
     """Real-time anomaly detection for OpenClaw agents."""
 
@@ -39,6 +271,9 @@ class AnomalyDetector:
         self.alert_webhook = alert_webhook
         self.kill_switch_enabled = kill_switch
         self.verbose = verbose
+        self.alert_dispatcher = AlertDispatcher(
+            webhook_urls=alert_webhook, verbose=verbose
+        )
 
         # Audit log
         self.audit_file = Path.home() / ".declaw" / "monitor-audit.log"
@@ -167,6 +402,10 @@ class AnomalyDetector:
         print(f"🔍 DeClaw Monitor starting...")
         print(f"   Monitoring: {self.openclaw_dir}")
         print(f"   Kill switch: {'ENABLED' if self.kill_switch_enabled else 'DISABLED'}")
+        if self.alert_dispatcher.configured:
+            print(f"   Webhooks: {len(self.alert_dispatcher.destinations)} destination(s)")
+        else:
+            print(f"   Webhooks: none (use --webhook to enable alerts)")
         print(f"   Patterns: {len(self.patterns)} loaded\n")
 
         # Find session files
@@ -257,7 +496,7 @@ class AnomalyDetector:
                          agent_id: str, session_file: Path, context: str):
         """Handle a pattern detection."""
         detection = {
-            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "event_type": "anomaly_detected",
             "pattern_id": pattern.id,
             "pattern_name": pattern.name,
@@ -281,8 +520,10 @@ class AnomalyDetector:
         # Take action
         if pattern.action == "kill" and self.kill_switch_enabled:
             self._kill_container(agent_id, pattern)
+            # Also send alert notification after kill
+            self._send_alert(pattern, agent_id, context, action_taken="kill")
         elif pattern.action == "alert":
-            self._send_alert(pattern, agent_id, context)
+            self._send_alert(pattern, agent_id, context, action_taken="alert")
 
     def _print_alert(self, pattern: DetectionPattern, agent_id: str, context: str):
         """Print detection alert."""
@@ -332,7 +573,7 @@ class AnomalyDetector:
                 block_file = Path.home() / ".declaw" / f"{agent_id}.blocked"
                 with open(block_file, 'w') as f:
                     f.write(json.dumps({
-                        "timestamp": datetime.utcnow().isoformat() + "Z",
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
                         "pattern": pattern.id,
                         "severity": pattern.severity,
                         "reason": pattern.description
@@ -347,15 +588,17 @@ class AnomalyDetector:
         except subprocess.CalledProcessError as e:
             print(f"   ❌ Failed to kill container: {e}")
 
-    def _send_alert(self, pattern: DetectionPattern, agent_id: str, context: str):
-        """Send alert via webhook/notification."""
-        if self.alert_webhook:
-            # TODO: Implement webhook alert
-            pass
+    def _send_alert(self, pattern: DetectionPattern, agent_id: str,
+                    context: str, action_taken: str = "alert"):
+        """Send alert to all configured destinations."""
+        if not self.alert_dispatcher.configured:
+            if self.verbose:
+                print(f"   📨 No webhook configured (use --webhook to enable alerts)")
+            return
 
-        # For now, just print
-        if self.verbose:
-            print(f"   📨 Alert would be sent via webhook")
+        sent = self.alert_dispatcher.send(pattern, agent_id, context, action_taken)
+        if self.verbose and sent == 0:
+            print(f"   ❌ Failed to send alert to any destination")
 
     def _print_summary(self):
         """Print detection summary."""
@@ -371,6 +614,10 @@ class AnomalyDetector:
             for severity, count in self.detections.items():
                 if count > 0:
                     print(f"   {severity}: {count}")
+
+        if self.alert_dispatcher.configured:
+            print(f"\n📨 Alerts: {self.alert_dispatcher.send_count} sent, "
+                  f"{self.alert_dispatcher.fail_count} failed")
 
         print(f"\n📁 Audit log: {self.audit_file}")
         print("="*60 + "\n")
@@ -436,6 +683,42 @@ def cmd_audit(args):
             print()
 
 
+def cmd_test_alert(args):
+    """Send a test alert to verify webhook configuration."""
+    if not args.webhook:
+        print("❌ --webhook is required for test-alert", file=sys.stderr)
+        sys.exit(1)
+
+    dispatcher = AlertDispatcher(webhook_urls=args.webhook, verbose=True)
+
+    if not dispatcher.configured:
+        print("❌ No valid destinations parsed from --webhook", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"📨 Sending test alert to {len(dispatcher.destinations)} destination(s)...")
+    for dest in dispatcher.destinations:
+        parsed = urlparse(dest)
+        scheme = parsed.scheme or "unknown"
+        print(f"   → {scheme}: {dest[:60]}{'...' if len(dest) > 60 else ''}")
+
+    # Create a synthetic test pattern
+    test_pattern = DetectionPattern(
+        id="TEST_ALERT",
+        name="Test alert",
+        severity="LOW",
+        regex="test",
+        action="alert",
+        description="This is a test alert from declaw-monitor to verify webhook delivery.",
+    )
+
+    sent = dispatcher.send(test_pattern, agent_id="test-agent", context="Test alert payload", action_taken="test")
+    print(f"\n✅ Delivered to {sent}/{len(dispatcher.destinations)} destination(s)")
+
+    if sent < len(dispatcher.destinations):
+        print(f"⚠️  {len(dispatcher.destinations) - sent} destination(s) failed")
+        sys.exit(1)
+
+
 def cmd_patterns(args):
     """List available detection patterns."""
     detector = AnomalyDetector(
@@ -498,7 +781,11 @@ def main():
     )
     monitor_parser.add_argument(
         "--webhook",
-        help="Webhook URL for alerts (e.g., Telegram bot)"
+        help=("Alert destinations (comma-separated). Supported schemes: "
+              "telegram://BOT_TOKEN@CHAT_ID, "
+              "slack://hooks.slack.com/..., "
+              "smtp://user:pass@host:port?to=addr, "
+              "https://custom-webhook.example.com")
     )
     monitor_parser.add_argument(
         "-v", "--verbose",
@@ -513,6 +800,17 @@ def main():
     audit_parser.add_argument("--severity", choices=["CRITICAL", "HIGH", "MEDIUM", "LOW"])
     audit_parser.add_argument("-v", "--verbose", action="store_true")
     audit_parser.set_defaults(func=cmd_audit)
+
+    # test-alert command
+    test_alert_parser = subparsers.add_parser(
+        "test-alert", help="Send a test alert to verify webhook configuration"
+    )
+    test_alert_parser.add_argument(
+        "--webhook",
+        required=True,
+        help=("Alert destinations (comma-separated). Same format as monitor --webhook")
+    )
+    test_alert_parser.set_defaults(func=cmd_test_alert)
 
     # patterns command
     patterns_parser = subparsers.add_parser("patterns", help="List detection patterns")

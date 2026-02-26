@@ -270,15 +270,16 @@ class TestAuditLogging:
         assert required.issubset(entry.keys()), f"Missing fields: {required - entry.keys()}"
 
     def test_audit_timestamp_format(self, manager_with_env):
-        """Timestamp should be ISO 8601 ending in Z."""
+        """Timestamp should be ISO 8601 with UTC offset."""
         mgr = manager_with_env
         mgr.set("TS_KEY", "val")
 
         entry = json.loads(mgr.audit_file.read_text().strip().split("\n")[-1])
-        assert entry["timestamp"].endswith("Z")
+        # datetime.now(timezone.utc).isoformat() produces +00:00 suffix
+        assert "+00:00" in entry["timestamp"]
         # Should parse as ISO datetime
         from datetime import datetime
-        datetime.fromisoformat(entry["timestamp"].rstrip("Z"))
+        datetime.fromisoformat(entry["timestamp"])
 
 
 # ---------------------------------------------------------------------------

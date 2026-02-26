@@ -82,5 +82,5 @@ tests/
     conftest.py                  # Shared pytest fixtures
     test_declaw_secrets.py       # 45 tests
     test_declaw_doctor.py        # 64 tests (includes Phase 2 checks)
-    test_declaw_monitor.py       # 52 tests
+    test_declaw_monitor.py       # 89 tests
 ```
