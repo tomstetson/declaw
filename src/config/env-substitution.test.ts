@@ -1,5 +1,22 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { MissingEnvVarError, resolveConfigEnvVars } from "./env-substitution.js";
+
+// Mock the secrets module so tests never call the real Python script.
+// resolveSecret returns the mock value; isSecretUri/parseSecretUri use real implementations.
+vi.mock("../lib/secrets.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../lib/secrets.js")>();
+  return {
+    ...actual,
+    resolveSecret: vi.fn(),
+  };
+});
+
+import {
+  resolveSecret,
+  SecretNotFoundError,
+  SecretsManagerNotAvailableError,
+} from "../lib/secrets.js";
+const mockedResolveSecret = vi.mocked(resolveSecret);
 
 describe("resolveConfigEnvVars", () => {
   describe("basic substitution", () => {
@@ -346,6 +363,111 @@ describe("resolveConfigEnvVars", () => {
         const result = resolveConfigEnvVars(scenario.config, scenario.env);
         expect(result, scenario.name).toEqual(scenario.expected);
       }
+    });
+  });
+
+  describe("secret:// URI substitution", () => {
+    it("resolves secret:// URI to vault value", () => {
+      mockedResolveSecret.mockReturnValueOnce("sk-ant-from-vault");
+
+      const result = resolveConfigEnvVars({ apiKey: "secret://ANTHROPIC_API_KEY" }, {});
+
+      expect(result).toEqual({ apiKey: "sk-ant-from-vault" });
+      expect(mockedResolveSecret).toHaveBeenCalledWith("ANTHROPIC_API_KEY", "apiKey");
+    });
+
+    it("resolves secret:// URIs in nested config objects", () => {
+      mockedResolveSecret.mockReturnValueOnce("vault-key-123");
+
+      const config = {
+        models: {
+          providers: {
+            anthropic: { apiKey: "secret://API_KEY" },
+          },
+        },
+      };
+      const result = resolveConfigEnvVars(config, {});
+
+      expect(result).toEqual({
+        models: {
+          providers: {
+            anthropic: { apiKey: "vault-key-123" },
+          },
+        },
+      });
+      expect(mockedResolveSecret).toHaveBeenCalledWith(
+        "API_KEY",
+        "models.providers.anthropic.apiKey",
+      );
+    });
+
+    it("resolves secret:// URIs inside arrays", () => {
+      mockedResolveSecret.mockReturnValueOnce("secret-a");
+      mockedResolveSecret.mockReturnValueOnce("secret-b");
+
+      const config = { keys: ["secret://KEY_A", "secret://KEY_B"] };
+      const result = resolveConfigEnvVars(config, {});
+
+      expect(result).toEqual({ keys: ["secret-a", "secret-b"] });
+    });
+
+    it("does not treat secret:// as an env var substitution", () => {
+      mockedResolveSecret.mockReturnValueOnce("from-vault");
+
+      // secret:// values should not go through the ${} env var path
+      const result = resolveConfigEnvVars({ key: "secret://MY_KEY" }, { MY_KEY: "from-env" });
+
+      expect(result).toEqual({ key: "from-vault" });
+    });
+
+    it("passes through invalid secret:// URIs unchanged", () => {
+      // secret:// with invalid chars in the name — parseSecretUri returns null,
+      // so substituteString returns the original value without calling resolveSecret
+      const callsBefore = mockedResolveSecret.mock.calls.length;
+
+      const result = resolveConfigEnvVars({ key: "secret://invalid.name" }, {});
+
+      expect(result).toEqual({ key: "secret://invalid.name" });
+      expect(mockedResolveSecret.mock.calls.length).toBe(callsBefore);
+    });
+
+    it("propagates SecretNotFoundError from resolveSecret", () => {
+      mockedResolveSecret.mockImplementationOnce(() => {
+        throw new SecretNotFoundError("MISSING", "key");
+      });
+
+      expect(() => resolveConfigEnvVars({ key: "secret://MISSING" }, {})).toThrow(
+        SecretNotFoundError,
+      );
+    });
+
+    it("propagates SecretsManagerNotAvailableError from resolveSecret", () => {
+      mockedResolveSecret.mockImplementationOnce(() => {
+        throw new SecretsManagerNotAvailableError();
+      });
+
+      expect(() => resolveConfigEnvVars({ key: "secret://ANY" }, {})).toThrow(
+        SecretsManagerNotAvailableError,
+      );
+    });
+
+    it("mixes secret:// and ${} env var substitution in the same config", () => {
+      mockedResolveSecret.mockReturnValueOnce("from-vault");
+
+      const config = {
+        providers: {
+          anthropic: { apiKey: "secret://ANTHROPIC_KEY" },
+          openai: { apiKey: "${OPENAI_KEY}" },
+        },
+      };
+      const result = resolveConfigEnvVars(config, { OPENAI_KEY: "sk-openai" });
+
+      expect(result).toEqual({
+        providers: {
+          anthropic: { apiKey: "from-vault" },
+          openai: { apiKey: "sk-openai" },
+        },
+      });
     });
   });
 });

@@ -372,13 +372,22 @@ class ConfigAuditor:
             # Check Telegram
             telegram = config.get("channels", {}).get("telegram", {})
             if telegram.get("enabled"):
-                # Need user to specify their Telegram ID
-                print("  ⚠️  Exec approvals enabled, but you need to set approval target")
-                print("     Add your Telegram user ID to config manually")
-                targets.append({
-                    "channel": "telegram",
-                    "to": "YOUR_TELEGRAM_USER_ID"
-                })
+                # Prompt user interactively for their Telegram user ID
+                print("  ⚠️  Exec approvals require a Telegram user ID for the approval target.")
+                user_id = input("     Enter your Telegram user ID (or press Enter to skip): ").strip()
+
+                if user_id:
+                    targets.append({
+                        "channel": "telegram",
+                        "to": user_id
+                    })
+                else:
+                    print("     Skipped. You must add a target manually before exec approvals will work.")
+                    print("     Edit approvals.exec.targets in your config file.")
+                    targets.append({
+                        "channel": "telegram",
+                        "to": "<TODO:TELEGRAM_USER_ID>"
+                    })
 
             config["approvals"]["exec"]["targets"] = targets
 

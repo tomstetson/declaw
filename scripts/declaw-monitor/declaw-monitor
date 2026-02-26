@@ -66,7 +66,7 @@ class AnomalyDetector:
                 "ENV_ACCESS",
                 "Environment variable access",
                 "CRITICAL",
-                r"(printenv|\\benv\\b|os\.environ|process\.env|/proc/self/environ|\$\(env\)|export.*KEY)",
+                r"(printenv|\benv\b|os\.environ|process\.env|/proc/self/environ|\$\(env\)|export.*KEY)",
                 action="kill",
                 description="Agent attempting to read environment variables (likely credential theft)"
             ),
