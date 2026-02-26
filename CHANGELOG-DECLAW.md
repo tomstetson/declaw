@@ -22,7 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 **Startup Config Validation**
 
 - Added `declaw doctor` security auditor
-- 10 security checks (3 CRITICAL, 3 HIGH, 3 MEDIUM, 1 LOW)
+- 13 security checks (3 CRITICAL, 5 HIGH, 4 MEDIUM, 1 LOW)
 - Auto-fix for 8/10 checks via `--fix` flag
 - Fail-fast validation at gateway startup (refuses to start if critical issues found)
 - Backup creation before auto-fixes
@@ -65,7 +65,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - API keys in environment variables **blocked** by default
 - Config must use `secret://KEY_NAME` references
-- Migration wizard available: `declaw migrate`
+- Migration wizard planned: `declaw migrate` (not yet built)
 
 **Sandbox Mode**
 
@@ -141,7 +141,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - All OpenClaw tests pass unchanged
 - Additional security tests added:
-  - Config validation tests (10 checks)
+  - Config validation tests (13 checks)
   - Secrets manager tests (5 providers)
   - Anomaly detection tests (10 patterns)
   - Sandbox enforcement tests
@@ -236,7 +236,7 @@ Track OpenClaw upstream merges here.
 
 **Auto-Fixable Issues:**
 
-1. Run `declaw migrate` to auto-fix config
+1. Run `declaw-doctor --fix` to auto-fix config
 2. Gateway token generated automatically
 3. Sandbox mode enabled for non-main sessions
 4. Context pruning configured

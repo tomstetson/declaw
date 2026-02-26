@@ -1,3 +1,5 @@
+import type { InstallRecordBase } from "./types.installs.js";
+
 export type PluginEntryConfig = {
   enabled?: boolean;
   config?: Record<string, unknown>;
@@ -35,4 +37,3 @@ export type PluginsConfig = {
     trustedOrigins?: string[];
   };
 };
-import type { InstallRecordBase } from "./types.installs.js";

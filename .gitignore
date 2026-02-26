@@ -122,7 +122,6 @@ dist/protocol.schema.json
 **/.stfolder/
 
 # DeClaw local state
-~/.declaw/
 .declaw/
 
 # Claude Code local overrides

@@ -1,6 +1,6 @@
 import type { OpenClawConfig } from "../../config/config.js";
 import { enforceEgressPolicy, validateEgressPolicy } from "../../lib/declaw-egress-policy.js";
-import { logInfo } from "../../logger.js";
+import { logInfo, logWarn } from "../../logger.js";
 import { resolveAgentConfig } from "../agent-scope.js";
 import {
   DEFAULT_SANDBOX_BROWSER_AUTOSTART_TIMEOUT_MS,
@@ -128,7 +128,7 @@ export function resolveSandboxDockerConfig(params: {
       logInfo(`declaw egress: ${warning}`);
     }
     for (const error of validation.errors) {
-      logInfo(`declaw egress: ${error}`);
+      logWarn(`declaw egress: ${error}`);
     }
     const overrides = enforceEgressPolicy(resolved, egressPolicy);
     Object.assign(resolved, overrides);

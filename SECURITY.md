@@ -9,7 +9,7 @@ It inherits OpenClaw's trust model and adds defense-in-depth controls.
 secret:// URI scheme):
 
 - Open a private security advisory at [tomstetson/declaw](https://github.com/tomstetson/declaw/security/advisories/new)
-- Or email: tomstetson@users.noreply.github.com
+- Or email: security@stetson.dev
 
 **Upstream OpenClaw issues** (core CLI, gateway, channels, plugins):
 
@@ -23,7 +23,7 @@ DeClaw adds these security layers on top of OpenClaw:
 
 - **Secrets management** -- `secret://` URI scheme resolves credentials from vaults
   (macOS Keychain, HashiCorp Vault, Bitwarden, 1Password) instead of environment variables
-- **Config validation** -- `declaw-doctor` audits 10 security checks at startup and
+- **Config validation** -- `declaw-doctor` audits 13 security checks at startup and
   refuses to start if critical issues are found
 - **Runtime monitoring** -- `declaw-monitor` watches session transcripts for anomalous
   patterns and can kill compromised containers

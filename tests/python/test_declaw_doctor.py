@@ -518,8 +518,8 @@ class TestFullAudit:
             assert "message" in issue
             assert "fixable" in issue
 
-    def test_check_count_is_12(self, declaw_doctor_mod, secure_config_file):
-        """There should be exactly 12 security checks defined."""
+    def test_check_count_is_13(self, declaw_doctor_mod, secure_config_file):
+        """There should be exactly 13 security checks defined."""
         auditor = declaw_doctor_mod.ConfigAuditor(secure_config_file)
         checks = auditor._get_checks()
         assert len(checks) == 13

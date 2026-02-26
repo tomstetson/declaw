@@ -36,16 +36,16 @@ AI gateway.
 
 ## Common Tasks
 
-| Task                  | Command                                                                 |
-| --------------------- | ----------------------------------------------------------------------- |
-| Run all tests         | `pnpm test`                                                             |
-| Run DeClaw tests only | `pnpm test src/lib/secrets.test.ts src/config/env-substitution.test.ts` |
-| Type check            | `pnpm tsgo`                                                             |
-| Lint + format check   | `pnpm check`                                                            |
-| Fix formatting        | `pnpm format:fix`                                                       |
-| Test secrets tool     | `python3 scripts/declaw-secrets/declaw-secrets --help`                  |
-| Test doctor tool      | `python3 scripts/declaw-doctor/declaw-doctor --help`                    |
-| Test monitor tool     | `python3 scripts/declaw-monitor/declaw-monitor --help`                  |
+| Task                  | Command                                                                                                                                                                                   |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Run all tests         | `pnpm test`                                                                                                                                                                               |
+| Run DeClaw tests only | `pnpm test src/lib/secrets.test.ts src/config/env-substitution.test.ts src/lib/declaw-command-policy.test.ts src/lib/declaw-egress-policy.test.ts src/lib/declaw-plugin-security.test.ts` |
+| Type check            | `pnpm tsgo`                                                                                                                                                                               |
+| Lint + format check   | `pnpm check`                                                                                                                                                                              |
+| Fix formatting        | `pnpm format:fix`                                                                                                                                                                         |
+| Test secrets tool     | `python3 scripts/declaw-secrets/declaw-secrets --help`                                                                                                                                    |
+| Test doctor tool      | `python3 scripts/declaw-doctor/declaw-doctor --help`                                                                                                                                      |
+| Test monitor tool     | `python3 scripts/declaw-monitor/declaw-monitor --help`                                                                                                                                    |
 
 ## Directory Structure (DeClaw-Specific)
 
@@ -53,7 +53,6 @@ AI gateway.
 scripts/
   declaw-secrets/     # Secrets manager (668 lines Python)
     declaw-secrets    # Main script
-    declaw-secrets-v1 # Legacy v1 (deprecated)
     PROVIDERS.md      # Provider documentation
     TESTING.md        # Test procedures
     setup.py          # Python packaging

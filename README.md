@@ -164,7 +164,7 @@ All access is audit-logged to `~/.declaw/audit.log` in JSONL format. Auto-detect
 
 ### 2. Startup Config Validation (`declaw-doctor`)
 
-10 security checks with auto-fix for 8 of them:
+13 security checks with auto-fix for 11 of them:
 
 ```bash
 # Audit your config
@@ -188,6 +188,9 @@ declaw-doctor --fix --dry-run
 | MEDIUM   | Context pruning disabled       | Enables cache-ttl (1h)          |
 | MEDIUM   | Non-loopback without TLS       | No (requires manual TLS setup)  |
 | MEDIUM   | Linux capabilities not dropped | Adds capDrop: ALL               |
+| HIGH     | No command policy configured   | Sets denylist mode              |
+| HIGH     | Sandbox network unrestricted   | Sets egress deny-all            |
+| MEDIUM   | No plugin security scanning    | Sets enforce mode               |
 | LOW      | Gateway reload race conditions | Sets hot reload with debounce   |
 
 Exit codes: 0 = pass, 1 = critical issues, 2 = warnings only. Designed for CI/CD integration.

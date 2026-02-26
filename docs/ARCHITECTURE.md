@@ -181,6 +181,9 @@ flowchart LR
 | M1  | Context pruning enabled             | MEDIUM   | Set mode to "cache-ttl"  |
 | M2  | Gateway bind (loopback or TLS)      | MEDIUM   | No (requires TLS setup)  |
 | M3  | Capability drop on containers       | MEDIUM   | Set capDrop to ["ALL"]   |
+| H4  | No command policy configured        | HIGH     | Set denylist mode        |
+| H5  | Sandbox network not restricted      | HIGH     | Set egress deny-all      |
+| M4  | No plugin security scanning policy  | MEDIUM   | Set enforce mode         |
 | L1  | Reload mode (hot + debounce)        | LOW      | Set mode to "hot"        |
 
 ## declaw-monitor Detection Patterns
