@@ -420,15 +420,12 @@ describe("resolveConfigEnvVars", () => {
       expect(result).toEqual({ key: "from-vault" });
     });
 
-    it("passes through invalid secret:// URIs unchanged", () => {
-      // secret:// with invalid chars in the name — parseSecretUri returns null,
-      // so substituteString returns the original value without calling resolveSecret
-      const callsBefore = mockedResolveSecret.mock.calls.length;
-
-      const result = resolveConfigEnvVars({ key: "secret://invalid.name" }, {});
-
-      expect(result).toEqual({ key: "secret://invalid.name" });
-      expect(mockedResolveSecret.mock.calls.length).toBe(callsBefore);
+    it("throws descriptive error for invalid secret:// URIs", () => {
+      // secret:// with invalid chars in the name should fail loudly so the user
+      // gets a clear misconfiguration error instead of a cryptic API auth failure
+      expect(() => resolveConfigEnvVars({ key: "secret://invalid.name" }, {})).toThrowError(
+        /Invalid secret URI.*secret:\/\/invalid\.name.*config path.*key/,
+      );
     });
 
     it("propagates SecretNotFoundError from resolveSecret", () => {

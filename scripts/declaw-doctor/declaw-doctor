@@ -73,18 +73,26 @@ class ConfigAuditor:
 
         return self.issues, self.warnings, self.info
 
-    def auto_fix(self) -> int:
-        """Auto-fix issues where possible."""
+    def auto_fix(self, dry_run: bool = False) -> int:
+        """Auto-fix issues where possible.
+
+        When dry_run=True, counts fixable issues without modifying config
+        or triggering side effects (e.g., interactive prompts).
+        """
         checks = self._get_checks()
         fixed_count = 0
 
         for check in checks:
             if check.fix_fn and check.check_fn(self.config):
-                if self.verbose:
-                    print(f"🔧 Fixing: {check.title}")
-
-                check.fix_fn(self.config)
-                fixed_count += 1
+                if dry_run:
+                    fixed_count += 1
+                    if self.verbose:
+                        print(f"  Would fix: {check.title}")
+                else:
+                    if self.verbose:
+                        print(f"🔧 Fixing: {check.title}")
+                    check.fix_fn(self.config)
+                    fixed_count += 1
 
         return fixed_count
 
@@ -686,7 +694,7 @@ def cmd_fix(args):
 
     print("🔧 Auto-fixing security issues...\n")
 
-    fixed_count = auditor.auto_fix()
+    fixed_count = auditor.auto_fix(dry_run=args.dry_run)
 
     if fixed_count > 0:
         if args.dry_run:

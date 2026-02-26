@@ -292,7 +292,17 @@ export async function verifyPluginIntegrity(
       }
 
       const [, expectedHash, relativePath] = match;
-      const filePath = path.join(pluginDir, relativePath ?? "");
+
+      // Prevent path traversal: resolved path must stay inside pluginDir
+      const filePath = path.resolve(pluginDir, relativePath ?? "");
+      const resolvedPluginDir = path.resolve(pluginDir);
+      if (!filePath.startsWith(resolvedPluginDir + path.sep) && filePath !== resolvedPluginDir) {
+        return {
+          valid: false,
+          checksumFile,
+          error: `Path traversal detected in checksum file: ${relativePath}`,
+        };
+      }
 
       try {
         const fileContent = await fs.readFile(filePath);

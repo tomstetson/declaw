@@ -603,16 +603,27 @@ class TestAutoFix:
 
         assert auditor.config["gateway"]["reload"]["mode"] == "hot"
 
-    def test_dry_run_does_not_modify_file(self, declaw_doctor_mod, insecure_config_file):
-        """When we call auto_fix() but don't call save_config(), the file is unchanged."""
-        original_content = insecure_config_file.read_text()
+    def test_dry_run_does_not_modify_config_or_call_fix_fns(self, declaw_doctor_mod, insecure_config_file):
+        """auto_fix(dry_run=True) counts fixable issues without modifying config
+        or triggering side effects like interactive prompts."""
+        auditor = declaw_doctor_mod.ConfigAuditor(insecure_config_file)
+        original_config = json.loads(json.dumps(auditor.config))
+
+        # dry_run=True should NOT call input() or any fix function
+        count = auditor.auto_fix(dry_run=True)
+
+        assert count > 0, "Should detect fixable issues"
+        assert auditor.config == original_config, "Config must not be modified in dry-run"
+        # File on disk also unchanged
+        assert insecure_config_file.read_text() == json.dumps(original_config, indent=2)
+
+    def test_dry_run_does_not_prompt_for_input(self, declaw_doctor_mod, insecure_config_file):
+        """dry_run=True must never call input() — the old code would block on stdin."""
         auditor = declaw_doctor_mod.ConfigAuditor(insecure_config_file)
 
-        with patch("builtins.input", return_value=""):
-            auditor.auto_fix()
-        # Do NOT call save_config -- simulating --dry-run behavior
-
-        assert insecure_config_file.read_text() == original_content
+        with patch("builtins.input") as mock_input:
+            auditor.auto_fix(dry_run=True)
+            mock_input.assert_not_called()
 
     def test_autofix_returns_count(self, declaw_doctor_mod, insecure_config_file):
         auditor = declaw_doctor_mod.ConfigAuditor(insecure_config_file)

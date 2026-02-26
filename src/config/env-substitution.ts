@@ -95,7 +95,12 @@ function substituteString(value: string, env: NodeJS.ProcessEnv, configPath: str
     if (secretName) {
       return resolveSecret(secretName, configPath);
     }
-    return value;
+    // Value starts with secret:// but has an invalid name — fail loudly so the
+    // user gets a clear error instead of a cryptic API auth failure downstream.
+    throw new Error(
+      `Invalid secret URI "${value}" at config path "${configPath}". ` +
+        `Secret names must match [A-Za-z0-9_-]+. Example: secret://MY_API_KEY`,
+    );
   }
 
   if (!value.includes("$")) {

@@ -348,6 +348,9 @@ jobs:
       - name: Test skill Python scripts
         run: python -m pytest -q skills
 
+      - name: Test DeClaw Python tools (secrets, doctor, monitor)
+        run: python -m pytest tests/python/ -v
+
   secrets:
     runs-on: ubuntu-latest
     steps:

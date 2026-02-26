@@ -427,4 +427,24 @@ describe("verifyPluginIntegrity", () => {
     const result = await verifyPluginIntegrity(tmpDir, path.join(tmpDir, "plugin.sha256"));
     expect(result.valid).toBe(true);
   });
+
+  it("rejects path traversal in checksum file", async () => {
+    // A malicious checksum file could reference ../../etc/passwd to trick
+    // the integrity check into reading files outside the plugin directory.
+    const fakeHash = "a".repeat(64);
+    await fs.writeFile(path.join(tmpDir, "plugin.sha256"), `${fakeHash}  ../../etc/passwd\n`);
+
+    const result = await verifyPluginIntegrity(tmpDir, path.join(tmpDir, "plugin.sha256"));
+    expect(result.valid).toBe(false);
+    expect(result.error).toContain("Path traversal");
+  });
+
+  it("rejects absolute path in checksum file", async () => {
+    const fakeHash = "b".repeat(64);
+    await fs.writeFile(path.join(tmpDir, "plugin.sha256"), `${fakeHash}  /etc/passwd\n`);
+
+    const result = await verifyPluginIntegrity(tmpDir, path.join(tmpDir, "plugin.sha256"));
+    expect(result.valid).toBe(false);
+    expect(result.error).toContain("Path traversal");
+  });
 });
