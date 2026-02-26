@@ -259,6 +259,162 @@ class TestReloadModeCheck:
         assert check.severity == "LOW"
 
 
+class TestCommandPolicyCheck:
+    """H4: No command policy configured."""
+
+    def test_no_policy_detected(self, declaw_doctor_mod):
+        config = {"tools": {"exec": {}}}
+        auditor = _make_auditor(declaw_doctor_mod, config)
+        result = auditor._check_command_policy(config)
+        assert result is not None
+        assert "No command policy" in result
+
+    def test_denylist_policy_passes(self, declaw_doctor_mod):
+        config = {"tools": {"exec": {"commandPolicy": {"mode": "denylist", "deny": ["curl"]}}}}
+        auditor = _make_auditor(declaw_doctor_mod, config)
+        result = auditor._check_command_policy(config)
+        assert result is None
+
+    def test_allowlist_policy_passes(self, declaw_doctor_mod):
+        config = {"tools": {"exec": {"commandPolicy": {"mode": "allowlist", "allow": ["ls"]}}}}
+        auditor = _make_auditor(declaw_doctor_mod, config)
+        result = auditor._check_command_policy(config)
+        assert result is None
+
+    def test_per_agent_policy_passes(self, declaw_doctor_mod):
+        config = {
+            "agents": {"list": [{
+                "id": "a1",
+                "tools": {"exec": {"commandPolicy": {"mode": "denylist", "deny": ["curl"]}}}
+            }]}
+        }
+        auditor = _make_auditor(declaw_doctor_mod, config)
+        result = auditor._check_command_policy(config)
+        assert result is None
+
+    def test_off_mode_detected(self, declaw_doctor_mod):
+        config = {"tools": {"exec": {"commandPolicy": {"mode": "off"}}}}
+        auditor = _make_auditor(declaw_doctor_mod, config)
+        result = auditor._check_command_policy(config)
+        assert result is not None
+
+    def test_empty_config_detected(self, declaw_doctor_mod):
+        auditor = _make_auditor(declaw_doctor_mod, {})
+        result = auditor._check_command_policy({})
+        assert result is not None
+
+    def test_severity_is_high(self, declaw_doctor_mod):
+        check = _get_check_by_id(declaw_doctor_mod, "H4")
+        assert check.severity == "HIGH"
+
+    def test_is_auto_fixable(self, declaw_doctor_mod):
+        check = _get_check_by_id(declaw_doctor_mod, "H4")
+        assert check.fix_fn is not None
+
+    def test_auto_fix_adds_denylist(self, declaw_doctor_mod):
+        config = {}
+        auditor = _make_auditor(declaw_doctor_mod, config)
+        auditor._fix_command_policy(config)
+        policy = config["tools"]["exec"]["commandPolicy"]
+        assert policy["mode"] == "denylist"
+        assert "curl" in policy["deny"]
+        assert "wget" in policy["deny"]
+        assert "sudo" in policy["deny"]
+
+
+class TestEgressPolicyCheck:
+    """H5: Sandbox network not restricted."""
+
+    def test_network_none_passes(self, declaw_doctor_mod):
+        config = {
+            "agents": {"list": [{
+                "id": "a1",
+                "sandbox": {"docker": {"network": "none"}}
+            }]}
+        }
+        auditor = _make_auditor(declaw_doctor_mod, config)
+        result = auditor._check_egress_policy(config)
+        assert result is None
+
+    def test_bridge_without_policy_detected(self, declaw_doctor_mod):
+        config = {
+            "agents": {"list": [{
+                "id": "a1",
+                "sandbox": {"docker": {"network": "bridge"}}
+            }]}
+        }
+        auditor = _make_auditor(declaw_doctor_mod, config)
+        result = auditor._check_egress_policy(config)
+        assert result is not None
+        assert "without egress policy" in result
+
+    def test_bridge_with_deny_all_passes(self, declaw_doctor_mod):
+        config = {
+            "agents": {"list": [{
+                "id": "a1",
+                "sandbox": {"docker": {
+                    "network": "bridge",
+                    "egressPolicy": {"mode": "deny-all"}
+                }}
+            }]}
+        }
+        auditor = _make_auditor(declaw_doctor_mod, config)
+        result = auditor._check_egress_policy(config)
+        assert result is None
+
+    def test_bridge_with_restricted_passes(self, declaw_doctor_mod):
+        config = {
+            "agents": {"list": [{
+                "id": "a1",
+                "sandbox": {"docker": {
+                    "network": "bridge",
+                    "egressPolicy": {"mode": "restricted"}
+                }}
+            }]}
+        }
+        auditor = _make_auditor(declaw_doctor_mod, config)
+        result = auditor._check_egress_policy(config)
+        assert result is None
+
+    def test_default_network_detected(self, declaw_doctor_mod):
+        config = {
+            "agents": {
+                "defaults": {"sandbox": {"docker": {"network": "bridge"}}},
+                "list": []
+            }
+        }
+        auditor = _make_auditor(declaw_doctor_mod, config)
+        result = auditor._check_egress_policy(config)
+        assert result is not None
+        assert "Default sandbox" in result
+
+    def test_no_agents_passes(self, declaw_doctor_mod):
+        auditor = _make_auditor(declaw_doctor_mod, {})
+        result = auditor._check_egress_policy({})
+        assert result is None
+
+    def test_severity_is_high(self, declaw_doctor_mod):
+        check = _get_check_by_id(declaw_doctor_mod, "H5")
+        assert check.severity == "HIGH"
+
+    def test_is_auto_fixable(self, declaw_doctor_mod):
+        check = _get_check_by_id(declaw_doctor_mod, "H5")
+        assert check.fix_fn is not None
+
+    def test_auto_fix_sets_deny_all(self, declaw_doctor_mod):
+        config = {
+            "agents": {"list": [{
+                "id": "a1",
+                "sandbox": {"docker": {"network": "bridge"}}
+            }]}
+        }
+        auditor = _make_auditor(declaw_doctor_mod, config)
+        auditor._fix_egress_policy(config)
+        docker = config["agents"]["list"][0]["sandbox"]["docker"]
+        assert docker["egressPolicy"]["mode"] == "deny-all"
+        assert docker["network"] == "none"
+
+
 # ---------------------------------------------------------------------------
 # Full audit runs
 # ---------------------------------------------------------------------------
@@ -295,11 +451,11 @@ class TestFullAudit:
             assert "message" in issue
             assert "fixable" in issue
 
-    def test_check_count_is_10(self, declaw_doctor_mod, secure_config_file):
-        """There should be exactly 10 security checks defined."""
+    def test_check_count_is_12(self, declaw_doctor_mod, secure_config_file):
+        """There should be exactly 12 security checks defined."""
         auditor = declaw_doctor_mod.ConfigAuditor(secure_config_file)
         checks = auditor._get_checks()
-        assert len(checks) == 10
+        assert len(checks) == 12
 
 
 # ---------------------------------------------------------------------------

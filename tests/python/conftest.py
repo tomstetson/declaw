@@ -105,6 +105,14 @@ SECURE_CONFIG = {
             }
         ],
     },
+    "tools": {
+        "exec": {
+            "commandPolicy": {
+                "mode": "denylist",
+                "deny": ["curl", "wget", "nc", "ncat", "socat", "ssh"],
+            },
+        },
+    },
     "approvals": {
         "exec": {
             "enabled": True,

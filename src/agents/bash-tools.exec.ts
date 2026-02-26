@@ -7,6 +7,7 @@ import {
   getShellPathFromLoginShell,
   resolveShellEnvFallbackTimeoutMs,
 } from "../infra/shell-env.js";
+import { evaluateDeclawCommandPolicy } from "../lib/declaw-command-policy.js";
 import { logInfo } from "../logger.js";
 import { parseAgentSessionKey, resolveAgentIdFromSessionKey } from "../routing/session-key.js";
 import { markBackgrounded } from "./bash-process-registry.js";
@@ -224,6 +225,18 @@ export function createExecTool(
 
       if (!params.command) {
         throw new Error("Provide a command to start.");
+      }
+
+      // DeClaw: Admin-enforced command policy check. Runs before all other
+      // allowlist/approval logic — a denied command cannot be bypassed.
+      const commandPolicyResult = evaluateDeclawCommandPolicy(
+        params.command,
+        defaults?.commandPolicy,
+      );
+      if (!commandPolicyResult.allowed) {
+        throw new Error(
+          `exec denied by DeClaw command policy (${commandPolicyResult.mode}): ${commandPolicyResult.reason}`,
+        );
       }
 
       const maxOutput = DEFAULT_MAX_OUTPUT;

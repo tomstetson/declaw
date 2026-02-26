@@ -57,6 +57,19 @@ export type SandboxDockerSettings = {
    * Default behavior blocks container namespace joins to preserve sandbox isolation.
    */
   dangerouslyAllowContainerNamespaceJoin?: boolean;
+  /**
+   * DeClaw: Egress filtering policy for sandbox containers.
+   *   - "deny-all"      — Force network=none (recommended default)
+   *   - "restricted"     — Allow network with DNS restrictions
+   *   - "unrestricted"   — Allow any network config (warns)
+   */
+  egressPolicy?: {
+    mode: "deny-all" | "restricted" | "unrestricted";
+    /** DNS servers to allow when mode is "restricted". */
+    allowedDns?: string[];
+    /** Extra host mappings when mode is "restricted". Format: "hostname:ip". */
+    allowedHosts?: string[];
+  };
 };
 
 export type SandboxBrowserSettings = {

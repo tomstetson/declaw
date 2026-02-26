@@ -225,6 +225,62 @@ project/                            # DeClaw repo
   scripts/declaw-monitor/           # Python anomaly detector
 ```
 
+## Command Policy Enforcement (Phase 2)
+
+DeClaw's command policy runs at the top of the exec handler — before host
+routing, before the existing allowlist evaluation, before approval registration.
+A denied command cannot be bypassed by user approval.
+
+```mermaid
+flowchart TD
+    A["Agent calls exec tool"] --> B["createExecTool().execute()"]
+    B --> C{"DeClaw command policy
+    evaluateDeclawCommandPolicy()"}
+    C -->|"denied"| D["Error: exec denied by
+    DeClaw command policy"]
+    C -->|"allowed / off"| E{"Host routing"}
+    E -->|"sandbox"| F["Docker container exec"]
+    E -->|"gateway"| G["processGatewayAllowlist()
+    (OpenClaw allowlist + approvals)"]
+    E -->|"node"| H["Remote node exec"]
+
+    style C fill:#fff3cd,stroke:#856404
+    style D fill:#ffe6e6,stroke:#cc0000
+```
+
+Config: `tools.exec.commandPolicy` (global) or per-agent override.
+
+## Egress Policy Enforcement (Phase 2)
+
+Egress policy enforcement hooks into `resolveSandboxDockerConfig()`, modifying
+the Docker config before the container is created. The `deny-all` mode forces
+`network=none` regardless of other settings.
+
+```mermaid
+flowchart TD
+    A["openclaw.json"] --> B["resolveSandboxDockerConfig()"]
+    B --> C{"egressPolicy set?"}
+    C -->|"no"| D["Pass through
+    (default: network=none)"]
+    C -->|"yes"| E{"egressPolicy.mode"}
+    E -->|"deny-all"| F["Force network=none
+    Strip DNS/hosts"]
+    E -->|"restricted"| G["Keep network mode
+    Apply allowed DNS/hosts"]
+    E -->|"unrestricted"| H["Pass through
+    Log warning"]
+    F --> I["buildSandboxCreateArgs()
+    docker create --network none"]
+    G --> I
+    H --> I
+    D --> I
+
+    style F fill:#d4edda,stroke:#155724
+    style H fill:#ffe6e6,stroke:#cc0000
+```
+
+Config: `agents.defaults.sandbox.docker.egressPolicy` or per-agent override.
+
 ## Error Handling
 
 Secret resolution errors fail fast (no silent fallback):

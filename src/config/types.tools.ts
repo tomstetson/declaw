@@ -223,6 +223,20 @@ export type ExecToolConfig = {
   ask?: "off" | "on-miss" | "always";
   /** Default node binding for exec.host=node (node id/name). */
   node?: string;
+  /**
+   * DeClaw: Admin-enforced command policy. Runs BEFORE the user-managed
+   * exec-approvals allowlist — commands denied here cannot be bypassed.
+   *   - "off"       — No restrictions (default, upstream behavior)
+   *   - "allowlist"  — Only listed commands may execute
+   *   - "denylist"   — Listed commands are blocked
+   */
+  commandPolicy?: {
+    mode: "off" | "allowlist" | "denylist";
+    /** Commands to allow (allowlist mode). Supports wildcards (*). */
+    allow?: string[];
+    /** Commands to deny (denylist mode). Supports wildcards (*). */
+    deny?: string[];
+  };
   /** Directories to prepend to PATH when running exec (gateway/sandbox). */
   pathPrepend?: string[];
   /** Safe stdin-only binaries that can run without allowlist entries. */

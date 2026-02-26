@@ -15,16 +15,23 @@ while closing security gaps in the default configuration.
 All DeClaw additions live in these locations:
 
 - `src/lib/secrets.ts` - TypeScript bridge to declaw-secrets (execSync to Python)
+- `src/lib/declaw-command-policy.ts` - Command allowlist/denylist enforcement (Phase 2)
+- `src/lib/declaw-egress-policy.ts` - Egress filtering for sandbox containers (Phase 2)
 - `src/config/env-substitution.ts` - `secret://` URI integration (lines 92-99)
 - `scripts/declaw-secrets/` - Multi-provider secrets manager (Python 3.8+)
-- `scripts/declaw-doctor/` - Config security validator (Python 3.8+)
+- `scripts/declaw-doctor/` - Config security validator (Python 3.8+, 12 checks)
 - `scripts/declaw-monitor/` - Runtime anomaly detector (Python 3.8+)
 - `README.md` - DeClaw-specific README
 - `CHANGELOG-DECLAW.md` - DeClaw changelog
-- `SECURITY.md` - Security policy (still references upstream, needs updating)
+- `SECURITY.md` - Security policy
 
-Everything else is upstream OpenClaw. Do not modify upstream files unless
-necessary for DeClaw integration.
+Upstream files modified for DeClaw integration (keep minimal):
+
+- `src/agents/bash-tools.exec.ts` - Command policy hook (import + 6 lines)
+- `src/agents/bash-tools.exec-types.ts` - `commandPolicy` in ExecToolDefaults
+- `src/agents/sandbox/config.ts` - Egress policy enforcement (import + 12 lines)
+- `src/config/types.tools.ts` - `commandPolicy` in ExecToolConfig
+- `src/config/types.sandbox.ts` - `egressPolicy` in SandboxDockerSettings
 
 ## Commands
 
@@ -80,12 +87,14 @@ This means `secret://ANTHROPIC_API_KEY` resolves from the vault, while
 ## Testing Strategy
 
 - Upstream tests via `pnpm test` (vitest)
-- DeClaw TypeScript tests colocated: `src/lib/secrets.test.ts`, `src/config/env-substitution.test.ts`
-- Python tool tests: `scripts/declaw-secrets/TESTING.md` documents manual test procedures
-- No pytest infrastructure yet (planned)
+- DeClaw TypeScript tests colocated: `src/lib/secrets.test.ts`, `src/config/env-substitution.test.ts`,
+  `src/lib/declaw-command-policy.test.ts`, `src/lib/declaw-egress-policy.test.ts`
+- Python tool tests: `python3 -m pytest tests/python/ -v` (161 tests)
+- Test counts: 102 vitest (41 existing + 61 Phase 2) + 161 pytest = 263 total
 
 ## Current State (v1.0.0-alpha)
 
-**Working:** secret:// URI resolution, secrets.ts bridge, all 3 Python tools standalone
+**Working:** secret:// URI resolution, secrets.ts bridge, all 3 Python tools,
+command policy enforcement, egress policy enforcement
 **Not tested:** End-to-end secret resolution through OpenClaw config loading
-**Not implemented:** Command allowlist, egress filtering, webhook alerts, plugin scanning
+**Not implemented:** Webhook alerts, plugin scanning

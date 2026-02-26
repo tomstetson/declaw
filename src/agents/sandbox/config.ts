@@ -1,4 +1,6 @@
 import type { OpenClawConfig } from "../../config/config.js";
+import { enforceEgressPolicy, validateEgressPolicy } from "../../lib/declaw-egress-policy.js";
+import { logInfo } from "../../logger.js";
 import { resolveAgentConfig } from "../agent-scope.js";
 import {
   DEFAULT_SANDBOX_BROWSER_AUTOSTART_TIMEOUT_MS,
@@ -91,7 +93,7 @@ export function resolveSandboxDockerConfig(params: {
 
   const binds = [...(globalDocker?.binds ?? []), ...(agentDocker?.binds ?? [])];
 
-  return {
+  const resolved: SandboxDockerConfig = {
     image: agentDocker?.image ?? globalDocker?.image ?? DEFAULT_SANDBOX_IMAGE,
     containerPrefix:
       agentDocker?.containerPrefix ??
@@ -117,6 +119,22 @@ export function resolveSandboxDockerConfig(params: {
     binds: binds.length ? binds : undefined,
     ...resolveDangerousSandboxDockerBooleans(agentDocker, globalDocker),
   };
+
+  // DeClaw: Apply egress policy enforcement (agent-level overrides global-level)
+  const egressPolicy = agentDocker?.egressPolicy ?? globalDocker?.egressPolicy;
+  if (egressPolicy) {
+    const validation = validateEgressPolicy(resolved, egressPolicy);
+    for (const warning of validation.warnings) {
+      logInfo(`declaw egress: ${warning}`);
+    }
+    for (const error of validation.errors) {
+      logInfo(`declaw egress: ${error}`);
+    }
+    const overrides = enforceEgressPolicy(resolved, egressPolicy);
+    Object.assign(resolved, overrides);
+  }
+
+  return resolved;
 }
 
 export function resolveSandboxBrowserConfig(params: {

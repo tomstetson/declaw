@@ -10,33 +10,35 @@
 - [x] Create secrets.ts TypeScript bridge
 - [x] DeClaw branding (package.json, README, CHANGELOG-DECLAW)
 
-## Phase 1: Hardening (In Progress)
+## Phase 1: Hardening (Complete)
 
 - [x] Rebuild on latest upstream (v2026.2.24)
 - [x] Fix CI for private fork (runners, workflows, release-check)
 - [x] Fix Python tool bugs (keychain parsing, monitor regex, doctor placeholder)
 - [x] Add vitest tests for secrets.ts and secret:// integration (41 tests)
 - [x] Replace upstream CLAUDE.md/AGENTS.md with DeClaw-specific docs
-- [x] Create ADRs for key architectural decisions
-- [ ] Add pytest infrastructure for Python tools
-- [ ] Update SECURITY.md for DeClaw
-- [ ] Create ARCHITECTURE.md with Mermaid diagrams
+- [x] Create ADRs for key architectural decisions (3 ADRs)
+- [x] Add pytest infrastructure for Python tools (143 tests)
+- [x] Update SECURITY.md for DeClaw
+- [x] Create ARCHITECTURE.md with Mermaid diagrams
 - [ ] End-to-end integration test (config load with real secret:// resolution)
 - [ ] Remove declaw-secrets-v1 from bin exports (legacy, replaced by v2)
 
-## Phase 2: Security Enforcement (Not Started)
+## Phase 2: Security Enforcement (In Progress)
 
-Command allowlist and egress filtering are the two biggest security gaps
-remaining. Without these, a compromised agent can run arbitrary commands and
-exfiltrate data to any endpoint.
-
-- [ ] **Command allowlist enforcement** -- restrict which shell commands agents
-      can execute. Allowlist in config, deny by default, audit all denials.
-- [ ] **Egress filtering** -- restrict outbound network from sandboxed containers.
-      DNS allowlist, block non-allowlisted IPs, log violations.
-- [ ] **Webhook alerts** -- implement `_send_alert()` stub in declaw-monitor.
+- [x] **Command allowlist enforcement** — admin-enforced command policy that
+      runs before OpenClaw's user-managed exec-approvals. Supports allowlist
+      and denylist modes with wildcard patterns. Config: `tools.exec.commandPolicy`.
+      (src/lib/declaw-command-policy.ts, 41 vitest tests)
+- [x] **Egress filtering** — egress policy enforcement for sandbox containers.
+      Modes: deny-all (force network=none), restricted (DNS filtering),
+      unrestricted (warn). Config: `sandbox.docker.egressPolicy`.
+      (src/lib/declaw-egress-policy.ts, 20 vitest tests)
+- [x] **Doctor checks for Phase 2** — H4 (command policy) and H5 (egress policy)
+      added to declaw-doctor with auto-fix support. (12 checks total, 18 new pytest tests)
+- [ ] **Webhook alerts** — implement `_send_alert()` stub in declaw-monitor.
       Support Telegram, Slack, email (SMTP), custom webhook.
-- [ ] **Plugin security scanning** -- pre-install GPG signature verification,
+- [ ] **Plugin security scanning** — pre-install GPG signature verification,
       AST-based dangerous pattern detection, sandbox compatibility checks.
 
 ## Phase 3: Observability (Not Started)
@@ -59,11 +61,13 @@ exfiltrate data to any endpoint.
 - **Process**: See ADR-003 (docs/adr/003-fork-strategy.md)
 - **Current base**: OpenClaw v2026.2.24
 - **Integration points to watch**: `src/config/env-substitution.ts` (primary),
-  `src/agents/sandbox/config.ts` (sandbox defaults)
+  `src/agents/sandbox/config.ts` (sandbox defaults), `src/agents/bash-tools.exec.ts`
+  (command policy hook), `src/config/types.tools.ts` (commandPolicy config),
+  `src/config/types.sandbox.ts` (egressPolicy config)
 
 ## Priorities
 
-Phase 2 items (command allowlist, egress filtering) are the highest-impact
-remaining work. They close the two largest attack vectors: arbitrary command
-execution and unrestricted network access. Everything else is defense-in-depth
-layering on top of these controls.
+Phase 2 core features (command allowlist, egress filtering) are complete. The two
+largest attack vectors — arbitrary command execution and unrestricted network
+access — are now closable via config. Remaining Phase 2 items (webhook alerts,
+plugin scanning) add operational capabilities. Phase 3 focuses on observability.

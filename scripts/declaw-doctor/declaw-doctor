@@ -175,6 +175,22 @@ class ConfigAuditor:
                 self._fix_cap_drop
             ),
 
+            # Phase 2 checks — command policy and egress filtering
+            SecurityCheck(
+                "H4",
+                "HIGH",
+                "No command policy configured (agents can exec any binary)",
+                self._check_command_policy,
+                self._fix_command_policy
+            ),
+            SecurityCheck(
+                "H5",
+                "HIGH",
+                "Sandbox network not restricted (potential data exfiltration)",
+                self._check_egress_policy,
+                self._fix_egress_policy
+            ),
+
             # LOW severity checks
             SecurityCheck(
                 "L1",
@@ -301,6 +317,114 @@ class ConfigAuditor:
             return "; ".join(issues)
 
         return None
+
+    def _check_command_policy(self, config: Dict) -> str:
+        """Check if a command policy is configured for exec."""
+        # Check global tools.exec.commandPolicy
+        tools_exec = config.get("tools", {}).get("exec", {})
+        global_policy = tools_exec.get("commandPolicy", {})
+        global_mode = global_policy.get("mode", "off")
+
+        if global_mode != "off":
+            return None  # Policy is configured
+
+        # Check per-agent command policies
+        for agent in config.get("agents", {}).get("list", []):
+            agent_exec = agent.get("tools", {}).get("exec", {})
+            agent_policy = agent_exec.get("commandPolicy", {})
+            if agent_policy.get("mode", "off") != "off":
+                return None  # At least one agent has a policy
+
+        return ("No command policy configured. Agents can execute any binary. "
+                "Set tools.exec.commandPolicy.mode to 'denylist' or 'allowlist'")
+
+    def _check_egress_policy(self, config: Dict) -> str:
+        """Check if sandbox network is restricted."""
+        issues = []
+
+        for agent in config.get("agents", {}).get("list", []):
+            docker = agent.get("sandbox", {}).get("docker", {})
+            network = docker.get("network", "none")
+            egress = docker.get("egressPolicy", {})
+            egress_mode = egress.get("mode", "")
+
+            if network != "none" and egress_mode not in ("deny-all", "restricted"):
+                issues.append(
+                    f"Agent '{agent.get('id')}' has network='{network}' "
+                    f"without egress policy"
+                )
+
+        # Check global defaults
+        defaults_docker = (config.get("agents", {}).get("defaults", {})
+                          .get("sandbox", {}).get("docker", {}))
+        default_network = defaults_docker.get("network", "none")
+        default_egress = defaults_docker.get("egressPolicy", {})
+        default_egress_mode = default_egress.get("mode", "")
+
+        if default_network != "none" and default_egress_mode not in ("deny-all", "restricted"):
+            issues.append(
+                f"Default sandbox network='{default_network}' without egress policy"
+            )
+
+        if issues:
+            return "; ".join(issues)
+
+        return None
+
+    def _fix_command_policy(self, config: Dict):
+        """Add a default denylist command policy."""
+        if "tools" not in config:
+            config["tools"] = {}
+        if "exec" not in config["tools"]:
+            config["tools"]["exec"] = {}
+
+        config["tools"]["exec"]["commandPolicy"] = {
+            "mode": "denylist",
+            "deny": [
+                "curl", "wget", "nc", "ncat", "socat", "telnet",
+                "ssh", "scp", "sftp", "rsync",
+                "sudo", "su", "pkexec", "doas"
+            ]
+        }
+
+        print("  Added default command denylist (network tools, remote access, privilege escalation)")
+
+    def _fix_egress_policy(self, config: Dict):
+        """Set egress policy to deny-all for agents with open network."""
+        for agent in config.get("agents", {}).get("list", []):
+            docker = agent.get("sandbox", {}).get("docker", {})
+            network = docker.get("network", "none")
+            egress = docker.get("egressPolicy", {})
+
+            if network != "none" and egress.get("mode", "") not in ("deny-all", "restricted"):
+                if "sandbox" not in agent:
+                    agent["sandbox"] = {}
+                if "docker" not in agent["sandbox"]:
+                    agent["sandbox"]["docker"] = {}
+
+                agent["sandbox"]["docker"]["egressPolicy"] = {"mode": "deny-all"}
+                agent["sandbox"]["docker"]["network"] = "none"
+                print(f"  Set egress=deny-all, network=none for agent '{agent.get('id')}'")
+
+        # Fix global defaults too
+        defaults_docker = (config.get("agents", {}).get("defaults", {})
+                          .get("sandbox", {}).get("docker", {}))
+        default_network = defaults_docker.get("network", "none")
+        default_egress = defaults_docker.get("egressPolicy", {})
+
+        if default_network != "none" and default_egress.get("mode", "") not in ("deny-all", "restricted"):
+            if "agents" not in config:
+                config["agents"] = {}
+            if "defaults" not in config["agents"]:
+                config["agents"]["defaults"] = {}
+            if "sandbox" not in config["agents"]["defaults"]:
+                config["agents"]["defaults"]["sandbox"] = {}
+            if "docker" not in config["agents"]["defaults"]["sandbox"]:
+                config["agents"]["defaults"]["sandbox"]["docker"] = {}
+
+            config["agents"]["defaults"]["sandbox"]["docker"]["egressPolicy"] = {"mode": "deny-all"}
+            config["agents"]["defaults"]["sandbox"]["docker"]["network"] = "none"
+            print("  Set default egress=deny-all, network=none")
 
     def _check_reload_mode(self, config: Dict) -> str:
         """Check gateway reload mode."""

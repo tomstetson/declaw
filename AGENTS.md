@@ -18,6 +18,8 @@ AI gateway.
 | `scripts/declaw-secrets/declaw-secrets` | Multi-provider secrets manager (Python)             | Secrets bugs or new providers       |
 | `scripts/declaw-doctor/declaw-doctor`   | Config security validator (Python)                  | Config validation bugs              |
 | `scripts/declaw-monitor/declaw-monitor` | Runtime anomaly detector (Python)                   | Monitoring bugs or new patterns     |
+| `src/lib/declaw-command-policy.ts`      | Command allowlist/denylist enforcement (Phase 2)    | Command policy bugs or extensions   |
+| `src/lib/declaw-egress-policy.ts`       | Egress filtering for sandbox containers (Phase 2)   | Egress policy bugs or extensions    |
 | `package.json`                          | DeClaw branding, bin entries, version               | Version bumps or dependency changes |
 | `.github/workflows/ci.yml`              | CI config (modified for fork)                       | CI failures                         |
 
@@ -60,9 +62,25 @@ scripts/
     declaw-monitor    # Main script
 src/
   lib/
-    secrets.ts        # TypeScript secrets bridge (121 lines)
-    secrets.test.ts   # Tests
+    secrets.ts                   # TypeScript secrets bridge (121 lines)
+    secrets.test.ts              # Tests
+    declaw-command-policy.ts     # Command allowlist/denylist (Phase 2)
+    declaw-command-policy.test.ts
+    declaw-egress-policy.ts      # Egress filtering (Phase 2)
+    declaw-egress-policy.test.ts
   config/
-    env-substitution.ts      # Modified for secret:// support
-    env-substitution.test.ts # Tests (includes secret:// cases)
+    env-substitution.ts          # Modified for secret:// support
+    env-substitution.test.ts     # Tests (includes secret:// cases)
+    types.tools.ts               # Modified: added commandPolicy to ExecToolConfig
+    types.sandbox.ts             # Modified: added egressPolicy to SandboxDockerSettings
+  agents/
+    bash-tools.exec.ts           # Modified: DeClaw command policy hook
+    bash-tools.exec-types.ts     # Modified: commandPolicy in ExecToolDefaults
+    sandbox/config.ts            # Modified: egress policy enforcement
+tests/
+  python/
+    conftest.py                  # Shared pytest fixtures
+    test_declaw_secrets.py       # 45 tests
+    test_declaw_doctor.py        # 64 tests (includes Phase 2 checks)
+    test_declaw_monitor.py       # 52 tests
 ```
