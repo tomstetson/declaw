@@ -7,6 +7,7 @@ import {
   getShellPathFromLoginShell,
   resolveShellEnvFallbackTimeoutMs,
 } from "../infra/shell-env.js";
+import { emitDeclawEvent } from "../lib/declaw-audit.js";
 import { evaluateDeclawCommandPolicy } from "../lib/declaw-command-policy.js";
 import { logInfo } from "../logger.js";
 import { parseAgentSessionKey, resolveAgentIdFromSessionKey } from "../routing/session-key.js";
@@ -234,6 +235,18 @@ export function createExecTool(
         defaults?.commandPolicy,
       );
       if (!commandPolicyResult.allowed) {
+        emitDeclawEvent({
+          source: "declaw-gateway",
+          category: "policy.deny",
+          severity: "high",
+          detail: {
+            command: params.command,
+            binary: commandPolicyResult.deniedBinary,
+            mode: commandPolicyResult.mode,
+            reason: commandPolicyResult.reason,
+          },
+          outcome: "denied",
+        });
         throw new Error(
           `exec denied by DeClaw command policy (${commandPolicyResult.mode}): ${commandPolicyResult.reason}`,
         );

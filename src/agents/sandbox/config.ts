@@ -1,6 +1,6 @@
 import type { OpenClawConfig } from "../../config/config.js";
+import { emitDeclawEvent } from "../../lib/declaw-audit.js";
 import { enforceEgressPolicy, validateEgressPolicy } from "../../lib/declaw-egress-policy.js";
-import { logInfo, logWarn } from "../../logger.js";
 import { resolveAgentConfig } from "../agent-scope.js";
 import {
   DEFAULT_SANDBOX_BROWSER_AUTOSTART_TIMEOUT_MS,
@@ -125,12 +125,35 @@ export function resolveSandboxDockerConfig(params: {
   if (egressPolicy) {
     const validation = validateEgressPolicy(resolved, egressPolicy);
     for (const warning of validation.warnings) {
-      logInfo(`declaw egress: ${warning}`);
+      emitDeclawEvent({
+        source: "declaw-gateway",
+        category: "egress.warning",
+        severity: "medium",
+        detail: { message: warning, mode: egressPolicy.mode },
+        outcome: "warning",
+      });
     }
     for (const error of validation.errors) {
-      logWarn(`declaw egress: ${error}`);
+      emitDeclawEvent({
+        source: "declaw-gateway",
+        category: "egress.enforce",
+        severity: "high",
+        detail: { message: error, mode: egressPolicy.mode },
+        outcome: "warning",
+      });
     }
     const overrides = enforceEgressPolicy(resolved, egressPolicy);
+    emitDeclawEvent({
+      source: "declaw-gateway",
+      category: "egress.enforce",
+      severity: "info",
+      detail: {
+        mode: egressPolicy.mode,
+        effectiveNetwork: validation.effectiveNetwork,
+        overrideCount: Object.keys(overrides).length,
+      },
+      outcome: "success",
+    });
     Object.assign(resolved, overrides);
   }
 

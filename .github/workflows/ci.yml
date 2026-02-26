@@ -357,6 +357,7 @@ jobs:
             scripts/declaw-secrets/declaw-secrets \
             scripts/declaw-doctor/declaw-doctor \
             scripts/declaw-monitor/declaw-monitor \
+            scripts/declaw-common/ \
             tests/python/
 
       - name: Test skill Python scripts

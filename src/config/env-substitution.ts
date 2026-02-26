@@ -29,6 +29,7 @@
  * ```
  */
 
+import { emitDeclawEvent } from "../lib/declaw-audit.js";
 import { isSecretUri, parseSecretUri, resolveSecret } from "../lib/secrets.js";
 // Pattern for valid uppercase env var names: starts with letter or underscore,
 // followed by letters, numbers, or underscores (all uppercase)
@@ -93,7 +94,26 @@ function substituteString(value: string, env: NodeJS.ProcessEnv, configPath: str
   if (isSecretUri(value)) {
     const secretName = parseSecretUri(value);
     if (secretName) {
-      return resolveSecret(secretName, configPath);
+      try {
+        const resolved = resolveSecret(secretName, configPath);
+        emitDeclawEvent({
+          source: "declaw-gateway",
+          category: "secret.access",
+          severity: "info",
+          detail: { key: secretName, configPath },
+          outcome: "success",
+        });
+        return resolved;
+      } catch (err) {
+        emitDeclawEvent({
+          source: "declaw-gateway",
+          category: "secret.error",
+          severity: "high",
+          detail: { key: secretName, configPath, error: String(err) },
+          outcome: "failure",
+        });
+        throw err;
+      }
     }
     // Value starts with secret:// but has an invalid name — fail loudly so the
     // user gets a clear error instead of a cryptic API auth failure downstream.

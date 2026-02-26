@@ -18,19 +18,24 @@ All DeClaw additions live in these locations:
 - `src/lib/declaw-command-policy.ts` - Command allowlist/denylist enforcement (Phase 2)
 - `src/lib/declaw-egress-policy.ts` - Egress filtering for sandbox containers (Phase 2)
 - `src/lib/declaw-plugin-security.ts` - Plugin security scanning policy (Phase 2)
-- `src/config/env-substitution.ts` - `secret://` URI integration (lines 92-99)
+- `src/lib/declaw-events.ts` - Canonical security event schema (Phase 3)
+- `src/lib/declaw-audit.ts` - Structured audit logger → ~/.declaw/audit.jsonl (Phase 3)
+- `src/config/env-substitution.ts` - `secret://` URI integration (lines 92-124)
 - `scripts/declaw-secrets/` - Multi-provider secrets manager (Python 3.8+)
 - `scripts/declaw-doctor/` - Config security validator (Python 3.8+, 13 checks)
 - `scripts/declaw-monitor/` - Runtime anomaly detector (Python 3.8+)
+- `scripts/declaw-common/` - Shared Python modules (event_schema.py)
+- `docs/adr/004-unified-observability.md` - ADR for Phase 3 architecture
 - `README.md` - DeClaw-specific README
 - `CHANGELOG-DECLAW.md` - DeClaw changelog
 - `SECURITY.md` - Security policy
 
 Upstream files modified for DeClaw integration (keep minimal):
 
-- `src/agents/bash-tools.exec.ts` - Command policy hook (import + 6 lines)
+- `src/agents/bash-tools.exec.ts` - Command policy hook + audit event (import + 15 lines)
 - `src/agents/bash-tools.exec-types.ts` - `commandPolicy` in ExecToolDefaults
-- `src/agents/sandbox/config.ts` - Egress policy enforcement (import + 12 lines)
+- `src/agents/sandbox/config.ts` - Egress policy enforcement + audit events (import + 30 lines)
+- `src/config/env-substitution.ts` - secret:// audit events on resolve success/failure
 - `src/config/types.tools.ts` - `commandPolicy` in ExecToolConfig
 - `src/config/types.sandbox.ts` - `egressPolicy` in SandboxDockerSettings
 - `src/config/types.plugins.ts` - `pluginSecurity` in PluginsConfig
@@ -90,13 +95,16 @@ This means `secret://ANTHROPIC_API_KEY` resolves from the vault, while
 
 - Upstream tests via `pnpm test` (vitest)
 - DeClaw TypeScript tests colocated: `src/lib/secrets.test.ts`, `src/config/env-substitution.test.ts`,
-  `src/lib/declaw-command-policy.test.ts`, `src/lib/declaw-egress-policy.test.ts`
-- Python tool tests: `python3 -m pytest tests/python/ -v` (207 tests)
-- Test counts: 160 vitest (41 existing + 119 DeClaw) + 217 pytest = 377 total
+  `src/lib/declaw-command-policy.test.ts`, `src/lib/declaw-egress-policy.test.ts`,
+  `src/lib/declaw-events.test.ts`, `src/lib/declaw-audit.test.ts`,
+  `src/config/secret-resolution.integration.test.ts`
+- Python tool tests: `python3 -m pytest tests/python/ -v` (229 tests)
+- Test counts: 180 vitest (41 existing + 139 DeClaw) + 229 pytest = 409 total
 
 ## Current State (v1.0.0-alpha)
 
 **Working:** secret:// URI resolution, secrets.ts bridge, all 3 Python tools,
 command policy enforcement, egress policy enforcement, webhook alerts (4 providers),
-plugin security scanning (policy evaluation, integrity verification, sandbox compat)
-**Not tested:** End-to-end secret resolution through OpenClaw config loading
+plugin security scanning (policy evaluation, integrity verification, sandbox compat),
+unified audit trail (Phase 3: event schema, JSONL logger, instrumented hooks)
+**Tested e2e:** secret:// URI resolution through full config loading pipeline
