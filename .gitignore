@@ -124,3 +124,8 @@ dist/protocol.schema.json
 # DeClaw local state
 ~/.declaw/
 .declaw/
+
+# Claude Code local overrides
+CLAUDE.local.md
+.claude/settings.local.json
+.claude/context/

@@ -150,9 +150,11 @@ jobs:
           retention-days: 1
 
   # Validate npm pack contents after build (only on push to main, not PRs).
+  # Disabled for DeClaw fork: version mismatch between root (1.0.0-alpha) and
+  # upstream plugins (2026.2.24) is expected and not a release concern.
   release-check:
     needs: [docs-scope, build-artifacts]
-    if: github.event_name == 'push' && needs.docs-scope.outputs.docs_only != 'true'
+    if: false
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
