@@ -92,7 +92,7 @@ This means `secret://ANTHROPIC_API_KEY` resolves from the vault, while
 - DeClaw TypeScript tests colocated: `src/lib/secrets.test.ts`, `src/config/env-substitution.test.ts`,
   `src/lib/declaw-command-policy.test.ts`, `src/lib/declaw-egress-policy.test.ts`
 - Python tool tests: `python3 -m pytest tests/python/ -v` (207 tests)
-- Test counts: 151 vitest (41 existing + 110 DeClaw) + 217 pytest = 368 total
+- Test counts: 160 vitest (41 existing + 119 DeClaw) + 217 pytest = 377 total
 
 ## Current State (v1.0.0-alpha)
 

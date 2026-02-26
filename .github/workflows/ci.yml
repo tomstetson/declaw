@@ -210,6 +210,12 @@ jobs:
         with:
           install-bun: "${{ matrix.runtime == 'bun' }}"
 
+      - name: Setup Python (for DeClaw integration tests)
+        if: (github.event_name != 'push' || matrix.runtime != 'bun') && matrix.task == 'test'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
       - name: Configure vitest JSON reports
         if: (github.event_name != 'push' || matrix.runtime != 'bun') && matrix.task == 'test' && matrix.runtime == 'node'
         run: echo "OPENCLAW_VITEST_REPORT_DIR=$RUNNER_TEMP/vitest-reports" >> "$GITHUB_ENV"
@@ -344,6 +350,14 @@ jobs:
 
       - name: Lint Python skill scripts
         run: python -m ruff check skills
+
+      - name: Lint DeClaw Python tools
+        run: |
+          python -m ruff check \
+            scripts/declaw-secrets/declaw-secrets \
+            scripts/declaw-doctor/declaw-doctor \
+            scripts/declaw-monitor/declaw-monitor \
+            tests/python/
 
       - name: Test skill Python scripts
         run: python -m pytest -q skills

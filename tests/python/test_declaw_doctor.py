@@ -16,7 +16,6 @@ from unittest.mock import patch
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Individual check methods (against known-bad configs)
 # ---------------------------------------------------------------------------

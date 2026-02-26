@@ -68,7 +68,11 @@ export function resolveSecret(secretName: string, configPath: string): string {
       "../../scripts/declaw-secrets/declaw-secrets",
     );
 
-    const result = execSync(`"${declawSecretsPath}" get "${secretName}"`, {
+    // Allow operators (and tests) to force a specific provider via env var.
+    const providerArg = process.env.DECLAW_SECRETS_PROVIDER
+      ? ` --provider "${process.env.DECLAW_SECRETS_PROVIDER}"`
+      : "";
+    const result = execSync(`"${declawSecretsPath}"${providerArg} get "${secretName}"`, {
       encoding: "utf-8",
       stdio: ["pipe", "pipe", "pipe"],
       timeout: 5000, // 5 second timeout

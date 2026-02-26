@@ -167,6 +167,31 @@ describe("resolveSecret", () => {
     mockedExecSync.mockReturnValueOnce("value\n");
     expect(() => resolveSecret("MY_API-KEY_v2", "config.key")).not.toThrow();
   });
+
+  it("passes --provider flag when DECLAW_SECRETS_PROVIDER is set", () => {
+    vi.stubEnv("DECLAW_SECRETS_PROVIDER", "env");
+    mockedExecSync.mockReturnValueOnce("secret-value\n");
+
+    resolveSecret("MY_KEY", "config.path");
+
+    expect(mockedExecSync).toHaveBeenCalledWith(
+      expect.stringContaining('--provider "env"'),
+      expect.any(Object),
+    );
+    vi.unstubAllEnvs();
+  });
+
+  it("does not pass --provider flag when DECLAW_SECRETS_PROVIDER is unset", () => {
+    delete process.env.DECLAW_SECRETS_PROVIDER;
+    mockedExecSync.mockReturnValueOnce("secret-value\n");
+
+    resolveSecret("MY_KEY", "config.path");
+
+    expect(mockedExecSync).toHaveBeenCalledWith(
+      expect.not.stringContaining("--provider"),
+      expect.any(Object),
+    );
+  });
 });
 
 describe("error classes", () => {

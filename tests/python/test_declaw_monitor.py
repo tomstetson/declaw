@@ -21,7 +21,6 @@ from unittest.mock import MagicMock, Mock, call, patch
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Detection pattern matching
 # ---------------------------------------------------------------------------
