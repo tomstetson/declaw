@@ -20,6 +20,7 @@ AI gateway.
 | `scripts/declaw-monitor/declaw-monitor` | Runtime anomaly detector (Python)                   | Monitoring bugs or new patterns     |
 | `src/lib/declaw-command-policy.ts`      | Command allowlist/denylist enforcement (Phase 2)    | Command policy bugs or extensions   |
 | `src/lib/declaw-egress-policy.ts`       | Egress filtering for sandbox containers (Phase 2)   | Egress policy bugs or extensions    |
+| `src/lib/declaw-plugin-security.ts`     | Plugin security scanning policy (Phase 2)           | Plugin security bugs or extensions  |
 | `package.json`                          | DeClaw branding, bin entries, version               | Version bumps or dependency changes |
 | `.github/workflows/ci.yml`              | CI config (modified for fork)                       | CI failures                         |
 
@@ -68,11 +69,14 @@ src/
     declaw-command-policy.test.ts
     declaw-egress-policy.ts      # Egress filtering (Phase 2)
     declaw-egress-policy.test.ts
+    declaw-plugin-security.ts    # Plugin security scanning (Phase 2)
+    declaw-plugin-security.test.ts
   config/
     env-substitution.ts          # Modified for secret:// support
     env-substitution.test.ts     # Tests (includes secret:// cases)
     types.tools.ts               # Modified: added commandPolicy to ExecToolConfig
     types.sandbox.ts             # Modified: added egressPolicy to SandboxDockerSettings
+    types.plugins.ts             # Modified: added pluginSecurity to PluginsConfig
   agents/
     bash-tools.exec.ts           # Modified: DeClaw command policy hook
     bash-tools.exec-types.ts     # Modified: commandPolicy in ExecToolDefaults

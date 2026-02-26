@@ -120,6 +120,14 @@ SECURE_CONFIG = {
             "targets": [{"channel": "telegram", "to": "12345"}],
         }
     },
+    "plugins": {
+        "pluginSecurity": {
+            "mode": "enforce",
+            "maxCriticalFindings": 0,
+            "blockedCapabilities": ["exec", "crypto-mining"],
+            "trustedOrigins": ["bundled"],
+        },
+    },
     "channels": {
         "telegram": {"enabled": True},
     },

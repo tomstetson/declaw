@@ -415,6 +415,73 @@ class TestEgressPolicyCheck:
         assert docker["network"] == "none"
 
 
+class TestPluginSecurityCheck:
+    """M4: No plugin security scanning policy configured."""
+
+    def test_no_policy_detected(self, declaw_doctor_mod):
+        config = {}
+        auditor = _make_auditor(declaw_doctor_mod, config)
+        result = auditor._check_plugin_security(config)
+        assert result is not None
+        assert "No plugin security policy" in result
+
+    def test_off_mode_detected(self, declaw_doctor_mod):
+        config = {"plugins": {"pluginSecurity": {"mode": "off"}}}
+        auditor = _make_auditor(declaw_doctor_mod, config)
+        result = auditor._check_plugin_security(config)
+        assert result is not None
+
+    def test_enforce_mode_passes(self, declaw_doctor_mod):
+        config = {"plugins": {"pluginSecurity": {
+            "mode": "enforce",
+            "blockedCapabilities": ["exec"],
+        }}}
+        auditor = _make_auditor(declaw_doctor_mod, config)
+        result = auditor._check_plugin_security(config)
+        assert result is None
+
+    def test_warn_mode_without_capabilities_warns(self, declaw_doctor_mod):
+        config = {"plugins": {"pluginSecurity": {"mode": "warn"}}}
+        auditor = _make_auditor(declaw_doctor_mod, config)
+        result = auditor._check_plugin_security(config)
+        assert result is not None
+        assert "without blocked capabilities" in result
+
+    def test_warn_mode_with_capabilities_passes(self, declaw_doctor_mod):
+        config = {"plugins": {"pluginSecurity": {
+            "mode": "warn",
+            "blockedCapabilities": ["exec", "network"],
+        }}}
+        auditor = _make_auditor(declaw_doctor_mod, config)
+        result = auditor._check_plugin_security(config)
+        assert result is None
+
+    def test_empty_plugins_detected(self, declaw_doctor_mod):
+        config = {"plugins": {}}
+        auditor = _make_auditor(declaw_doctor_mod, config)
+        result = auditor._check_plugin_security(config)
+        assert result is not None
+
+    def test_severity_is_medium(self, declaw_doctor_mod):
+        check = _get_check_by_id(declaw_doctor_mod, "M4")
+        assert check.severity == "MEDIUM"
+
+    def test_is_auto_fixable(self, declaw_doctor_mod):
+        check = _get_check_by_id(declaw_doctor_mod, "M4")
+        assert check.fix_fn is not None
+
+    def test_auto_fix_sets_enforce(self, declaw_doctor_mod):
+        config = {}
+        auditor = _make_auditor(declaw_doctor_mod, config)
+        auditor._fix_plugin_security(config)
+        policy = config["plugins"]["pluginSecurity"]
+        assert policy["mode"] == "enforce"
+        assert policy["maxCriticalFindings"] == 0
+        assert "exec" in policy["blockedCapabilities"]
+        assert "crypto-mining" in policy["blockedCapabilities"]
+        assert "bundled" in policy["trustedOrigins"]
+
+
 # ---------------------------------------------------------------------------
 # Full audit runs
 # ---------------------------------------------------------------------------
@@ -455,7 +522,7 @@ class TestFullAudit:
         """There should be exactly 12 security checks defined."""
         auditor = declaw_doctor_mod.ConfigAuditor(secure_config_file)
         checks = auditor._get_checks()
-        assert len(checks) == 12
+        assert len(checks) == 13
 
 
 # ---------------------------------------------------------------------------

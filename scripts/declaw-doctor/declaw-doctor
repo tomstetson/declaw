@@ -191,6 +191,14 @@ class ConfigAuditor:
                 self._fix_egress_policy
             ),
 
+            SecurityCheck(
+                "M4",
+                "MEDIUM",
+                "No plugin security scanning policy configured",
+                self._check_plugin_security,
+                self._fix_plugin_security
+            ),
+
             # LOW severity checks
             SecurityCheck(
                 "L1",
@@ -425,6 +433,39 @@ class ConfigAuditor:
             config["agents"]["defaults"]["sandbox"]["docker"]["egressPolicy"] = {"mode": "deny-all"}
             config["agents"]["defaults"]["sandbox"]["docker"]["network"] = "none"
             print("  Set default egress=deny-all, network=none")
+
+    def _check_plugin_security(self, config: Dict) -> str:
+        """Check if plugin security scanning policy is configured."""
+        plugins = config.get("plugins", {})
+        policy = plugins.get("pluginSecurity", {})
+        mode = policy.get("mode", "")
+
+        if not mode or mode == "off":
+            return "No plugin security policy (plugins install without scanning enforcement)"
+
+        if mode == "warn":
+            # Warn mode is set but check for capability restrictions
+            blocked = policy.get("blockedCapabilities", [])
+            if not blocked:
+                return ("Plugin security in warn mode without blocked capabilities "
+                        "(consider blocking: exec, network, env)")
+
+        return None
+
+    def _fix_plugin_security(self, config: Dict):
+        """Set plugin security to enforce mode with sensible defaults."""
+        if "plugins" not in config:
+            config["plugins"] = {}
+
+        config["plugins"]["pluginSecurity"] = {
+            "mode": "enforce",
+            "maxCriticalFindings": 0,
+            "blockedCapabilities": ["exec", "crypto-mining"],
+            "trustedOrigins": ["bundled"]
+        }
+
+        print("  Set plugin security to enforce mode (block critical findings, "
+              "block exec/crypto-mining capabilities, trust bundled plugins)")
 
     def _check_reload_mode(self, config: Dict) -> str:
         """Check gateway reload mode."""

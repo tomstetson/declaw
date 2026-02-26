@@ -24,7 +24,7 @@
 - [ ] End-to-end integration test (config load with real secret:// resolution)
 - [ ] Remove declaw-secrets-v1 from bin exports (legacy, replaced by v2)
 
-## Phase 2: Security Enforcement (In Progress)
+## Phase 2: Security Enforcement (Complete)
 
 - [x] **Command allowlist enforcement** — admin-enforced command policy that
       runs before OpenClaw's user-managed exec-approvals. Supports allowlist
@@ -35,13 +35,16 @@
       unrestricted (warn). Config: `sandbox.docker.egressPolicy`.
       (src/lib/declaw-egress-policy.ts, 20 vitest tests)
 - [x] **Doctor checks for Phase 2** — H4 (command policy) and H5 (egress policy)
-      added to declaw-doctor with auto-fix support. (12 checks total, 18 new pytest tests)
+      added to declaw-doctor with auto-fix support. (18 new pytest tests)
 - [x] **Webhook alerts** — AlertDispatcher with 4 providers: Telegram Bot API,
       Slack incoming webhook, SMTP email, generic HTTPS webhook. Comma-separated
       multi-destination support, retry logic, `test-alert` CLI subcommand.
       (37 new pytest tests)
-- [ ] **Plugin security scanning** — pre-install GPG signature verification,
-      AST-based dangerous pattern detection, sandbox compatibility checks.
+- [x] **Plugin security scanning** — policy evaluation engine with enforce/warn/off
+      modes, capability restriction (exec/network/env/crypto-mining), SHA256
+      integrity verification, sandbox compatibility checking. Config:
+      `plugins.pluginSecurity`. Doctor check M4 with auto-fix.
+      (src/lib/declaw-plugin-security.ts, 42 vitest + 10 pytest tests)
 
 ## Phase 3: Observability (Not Started)
 
@@ -69,8 +72,7 @@
 
 ## Priorities
 
-Phase 2 core features (command allowlist, egress filtering, webhook alerts) are
-complete. The two largest attack vectors — arbitrary command execution and
-unrestricted network access — are now closable via config. Webhook alerts enable
-real-time notifications when anomalies are detected. Remaining Phase 2 item
-(plugin scanning) adds supply-chain security. Phase 3 focuses on observability.
+Phase 2 is complete. All four security enforcement features are implemented:
+command allowlist (arbitrary exec), egress filtering (network exfiltration),
+webhook alerts (real-time notifications), and plugin security scanning
+(supply-chain). Phase 3 focuses on observability.

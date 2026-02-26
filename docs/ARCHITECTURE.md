@@ -318,6 +318,45 @@ flowchart TD
 
 Config: `declaw-monitor monitor --webhook "telegram://BOT@CHAT, https://hook.example.com"`
 
+## Plugin Security Scanning (Phase 2)
+
+DeClaw wraps OpenClaw's existing `skill-scanner` and adds policy enforcement,
+capability restriction, integrity verification, and sandbox compatibility:
+
+```mermaid
+flowchart TD
+    A["Plugin Install / Load"] --> B["skill-scanner
+    scanDirectoryWithSummary()"]
+    B --> C["SkillScanSummary
+    (findings, counts)"]
+    C --> D["evaluatePluginSecurity()"]
+
+    D --> E{"Policy mode?"}
+    E -->|"off"| F["Allow (no enforcement)"]
+    E -->|"warn"| G["Allow + log warnings"]
+    E -->|"enforce"| H{"Violations?"}
+
+    H -->|"critical > max"| I["DENY: critical findings"]
+    H -->|"blocked capability"| J["DENY: capability violation"]
+    H -->|"clean"| K["Allow"]
+
+    C --> L["checkSandboxCompatibility()"]
+    L --> M{"Plugin needs vs sandbox?"}
+    M -->|"network + none"| N["Incompatible"]
+    M -->|"exec + capDrop ALL"| N
+    M -->|"no conflicts"| O["Compatible"]
+
+    style I fill:#ffe6e6,stroke:#cc0000
+    style J fill:#ffe6e6,stroke:#cc0000
+    style N fill:#fff3cd,stroke:#856404
+```
+
+Capabilities are mapped from skill-scanner rule IDs: `dangerous-exec` → exec,
+`suspicious-network`/`potential-exfiltration` → network, `env-harvesting` → env,
+`dynamic-code-execution` → eval, `crypto-mining` → crypto-mining.
+
+Config: `plugins.pluginSecurity` in `openclaw.json`.
+
 ## Error Handling
 
 Secret resolution errors fail fast (no silent fallback):

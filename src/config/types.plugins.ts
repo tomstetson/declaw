@@ -26,5 +26,13 @@ export type PluginsConfig = {
   slots?: PluginSlotsConfig;
   entries?: Record<string, PluginEntryConfig>;
   installs?: Record<string, PluginInstallRecord>;
+  /** DeClaw: plugin security scanning policy. */
+  pluginSecurity?: {
+    mode: "off" | "warn" | "enforce";
+    maxCriticalFindings?: number;
+    blockedCapabilities?: string[];
+    requireIntegrity?: boolean;
+    trustedOrigins?: string[];
+  };
 };
 import type { InstallRecordBase } from "./types.installs.js";

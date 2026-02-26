@@ -43,12 +43,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - VPN sidecar integration (Gluetun/Mullvad support)
 - Explicit `_dangerouslyDisableSandbox` escape hatch
 
-**Plugin Security Scanning** (v1.1)
+**Plugin Security Scanning (Complete)**
 
-- Pre-install signature verification (GPG)
-- AST-based dangerous pattern detection
-- Sandbox compatibility checks
-- Force flag for overriding failed scans
+- [x] Policy evaluation engine (enforce/warn/off modes)
+- [x] Capability restriction mapping (exec, network, env, eval, crypto-mining)
+- [x] SHA256 integrity verification (`sha256sum`-compatible checksum files)
+- [x] Sandbox compatibility checking (network vs none, exec vs capDrop)
+- [x] Trusted origin support (bundled plugins skip scanning)
+- [x] Doctor check M4 with auto-fix (sets enforce mode + default capabilities)
+- [x] Config: `plugins.pluginSecurity` in openclaw.json
 
 ### Changed - Breaking Changes
 
