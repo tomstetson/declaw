@@ -13,8 +13,11 @@
  */
 
 import fs from "node:fs";
+import http from "node:http";
+import https from "node:https";
 import os from "node:os";
 import path from "node:path";
+import type { DeclawSiemConfig } from "../config/types.declaw.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
 import type { DeclawEventInput, DeclawSecurityEvent } from "./declaw-events.js";
 import { incrementDeclawMetrics } from "./declaw-metrics.js";
@@ -103,6 +106,9 @@ export function emitDeclawEvent(input: DeclawEventInput): void {
   // Increment in-memory metrics counters
   incrementDeclawMetrics(event);
 
+  // Forward to SIEM (fire-and-forget, async)
+  forwardToSiem(event);
+
   // Log via subsystem logger (appears in OpenClaw's log files and console)
   const message = `${event.category}: ${formatDetail(event)}`;
   const meta = { declawEvent: event };
@@ -163,6 +169,64 @@ function formatDetail(event: DeclawSecurityEvent): string {
       return `killed container for agent ${event.agentId ?? "unknown"}: ${d(detail.pattern)}`;
     default:
       return JSON.stringify(detail);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// SIEM transport (optional HTTP POST forwarding)
+// ---------------------------------------------------------------------------
+
+let siemConfig: DeclawSiemConfig | null = null;
+
+/** Configure SIEM event forwarding. Pass null to disable. */
+export function configureSiemTransport(config: DeclawSiemConfig | null): void {
+  siemConfig = config;
+}
+
+/** Reset SIEM config (for testing). */
+export function resetSiemTransport(): void {
+  siemConfig = null;
+}
+
+function forwardToSiem(event: DeclawSecurityEvent): void {
+  if (!siemConfig?.enabled || !siemConfig.endpoint) {
+    return;
+  }
+
+  try {
+    const payload = JSON.stringify(event);
+    const url = new URL(siemConfig.endpoint);
+    const mod = url.protocol === "https:" ? https : http;
+    const timeout = siemConfig.timeoutMs ?? 5000;
+
+    const req = mod.request(
+      {
+        method: "POST",
+        hostname: url.hostname,
+        port: url.port || (url.protocol === "https:" ? 443 : 80),
+        path: url.pathname + url.search,
+        headers: {
+          "Content-Type": "application/json",
+          "Content-Length": Buffer.byteLength(payload),
+          ...siemConfig.headers,
+        },
+        timeout,
+      },
+      () => {
+        // Response ignored — fire-and-forget
+      },
+    );
+
+    req.on("error", () => {
+      // SIEM forwarding is best-effort
+    });
+    req.on("timeout", () => {
+      req.destroy();
+    });
+    req.write(payload);
+    req.end();
+  } catch {
+    // Swallow errors — SIEM forwarding must never block or crash
   }
 }
 

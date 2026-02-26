@@ -240,6 +240,22 @@ class ConfigAuditor:
                 self._check_reload_mode,
                 self._fix_reload_mode
             ),
+
+            # Observability checks (Phase 3)
+            SecurityCheck(
+                "O1",
+                "MEDIUM",
+                "Audit trail not writable",
+                self._check_audit_trail_writable,
+                None  # Can't auto-fix filesystem permissions
+            ),
+            SecurityCheck(
+                "O2",
+                "LOW",
+                "SIEM endpoint not configured or invalid",
+                self._check_siem_endpoint,
+                None  # Can't auto-fix SIEM config
+            ),
         ]
 
     # Check functions
@@ -626,6 +642,47 @@ class ConfigAuditor:
             agent["sandbox"]["docker"]["capDrop"] = ["ALL"]
 
             print(f"  Dropped ALL capabilities for agent '{agent.get('id')}'")
+
+    def _check_audit_trail_writable(self, config: Dict) -> str:
+        """O1: Verify audit trail directory exists and is writable."""
+        declaw_config = config.get("declaw", {})
+        audit_path = declaw_config.get("audit", {}).get("path")
+
+        if audit_path:
+            target = Path(audit_path).expanduser()
+        else:
+            target = Path.home() / ".declaw" / "audit.jsonl"
+
+        if not target.parent.exists():
+            return f"Audit directory does not exist: {target.parent}"
+
+        if target.exists() and not os.access(target, os.W_OK):
+            return f"Audit file not writable: {target}"
+
+        if not target.exists() and not os.access(target.parent, os.W_OK):
+            return f"Audit directory not writable: {target.parent}"
+
+        return None
+
+    def _check_siem_endpoint(self, config: Dict) -> str:
+        """O2: Validate SIEM endpoint config if enabled."""
+        siem = config.get("declaw", {}).get("siem", {})
+
+        if not siem.get("enabled"):
+            return None  # SIEM not enabled, skip check
+
+        endpoint = siem.get("endpoint", "")
+        if not endpoint:
+            return "SIEM enabled but no endpoint configured (set declaw.siem.endpoint)"
+
+        from urllib.parse import urlparse
+        parsed = urlparse(endpoint)
+        if parsed.scheme not in ("http", "https"):
+            return f"SIEM endpoint must be http(s): {endpoint}"
+        if not parsed.hostname:
+            return f"SIEM endpoint has no hostname: {endpoint}"
+
+        return None
 
     def _fix_reload_mode(self, config: Dict):
         """Set gateway reload mode to hot."""

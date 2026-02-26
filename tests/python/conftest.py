@@ -65,6 +65,12 @@ def declaw_monitor_mod():
     return _import_script("declaw-monitor", "declaw_monitor")
 
 
+@pytest.fixture(scope="session")
+def declaw_audit_mod():
+    """Import declaw-audit script as a module."""
+    return _import_script("declaw-audit", "declaw_audit")
+
+
 # ---------------------------------------------------------------------------
 # Config fixtures
 # ---------------------------------------------------------------------------

@@ -23,7 +23,9 @@ All DeClaw additions live in these locations:
 - `src/lib/declaw-metrics.ts` - In-memory metrics counters, auto-incremented (Phase 3)
 - `src/config/env-substitution.ts` - `secret://` URI integration (lines 92-124)
 - `scripts/declaw-secrets/` - Multi-provider secrets manager (Python 3.8+)
-- `scripts/declaw-doctor/` - Config security validator (Python 3.8+, 13 checks)
+- `src/config/types.declaw.ts` - Observability config types (Phase 3)
+- `scripts/declaw-doctor/` - Config security validator (Python 3.8+, 15 checks)
+- `scripts/declaw-audit/` - Compliance query/export CLI (Python 3.8+)
 - `scripts/declaw-monitor/` - Runtime anomaly detector (Python 3.8+)
 - `scripts/declaw-common/` - Shared Python modules (event_schema.py)
 - `docs/adr/004-unified-observability.md` - ADR for Phase 3 architecture
@@ -40,6 +42,8 @@ Upstream files modified for DeClaw integration (keep minimal):
 - `src/config/types.tools.ts` - `commandPolicy` in ExecToolConfig
 - `src/config/types.sandbox.ts` - `egressPolicy` in SandboxDockerSettings
 - `src/config/types.plugins.ts` - `pluginSecurity` in PluginsConfig
+- `src/config/types.openclaw.ts` - `declaw?` observability config field
+- `src/config/types.ts` - barrel export for types.declaw.ts
 
 ## Commands
 
@@ -98,9 +102,9 @@ This means `secret://ANTHROPIC_API_KEY` resolves from the vault, while
 - DeClaw TypeScript tests colocated: `src/lib/secrets.test.ts`, `src/config/env-substitution.test.ts`,
   `src/lib/declaw-command-policy.test.ts`, `src/lib/declaw-egress-policy.test.ts`,
   `src/lib/declaw-events.test.ts`, `src/lib/declaw-audit.test.ts`,
-  `src/config/secret-resolution.integration.test.ts`
-- Python tool tests: `python3 -m pytest tests/python/ -v` (235 tests)
-- Test counts: 189 vitest (41 existing + 148 DeClaw) + 235 pytest = 424 total
+  `src/lib/declaw-metrics.test.ts`, `src/config/secret-resolution.integration.test.ts`
+- Python tool tests: `python3 -m pytest tests/python/ -v` (273 tests)
+- Test counts: 189 vitest (41 existing + 148 DeClaw) + 273 pytest = 462 total
 
 ## Current State (v1.0.0-alpha)
 
@@ -108,5 +112,7 @@ This means `secret://ANTHROPIC_API_KEY` resolves from the vault, while
 command policy enforcement, egress policy enforcement, webhook alerts (4 providers),
 plugin security scanning (policy evaluation, integrity verification, sandbox compat),
 unified audit trail (Phase 3: event schema, JSONL logger, instrumented hooks),
-in-memory metrics counters, Python tools migrated to unified event schema
+in-memory metrics counters, SIEM transport (fire-and-forget HTTP POST),
+observability config types, audit CLI (query/export/stats), doctor O1/O2 checks,
+Python tools migrated to unified event schema
 **Tested e2e:** secret:// URI resolution through full config loading pipeline

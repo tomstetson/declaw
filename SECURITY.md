@@ -23,7 +23,7 @@ DeClaw adds these security layers on top of OpenClaw:
 
 - **Secrets management** -- `secret://` URI scheme resolves credentials from vaults
   (macOS Keychain, HashiCorp Vault, Bitwarden, 1Password) instead of environment variables
-- **Config validation** -- `declaw-doctor` audits 13 security checks at startup and
+- **Config validation** -- `declaw-doctor` audits 15 security checks at startup and
   refuses to start if critical issues are found
 - **Runtime monitoring** -- `declaw-monitor` watches session transcripts for anomalous
   patterns and can kill compromised containers

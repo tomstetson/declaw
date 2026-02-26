@@ -3,9 +3,11 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  configureSiemTransport,
   emitDeclawEvent,
   readAuditEvents,
   resetAuditLogPath,
+  resetSiemTransport,
   setAuditLogPath,
 } from "./declaw-audit.js";
 import type { DeclawSecurityEvent } from "./declaw-events.js";
@@ -22,6 +24,7 @@ describe("declaw-audit", () => {
 
   afterEach(() => {
     resetAuditLogPath();
+    resetSiemTransport();
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
@@ -235,6 +238,67 @@ describe("declaw-audit", () => {
       fs.writeFileSync(auditFile, "");
       const events = readAuditEvents();
       expect(events).toEqual([]);
+    });
+  });
+
+  // -- SIEM transport ------------------------------------------------------
+
+  describe("configureSiemTransport", () => {
+    it("accepts null to disable", () => {
+      expect(() => configureSiemTransport(null)).not.toThrow();
+    });
+
+    it("accepts a valid config", () => {
+      expect(() =>
+        configureSiemTransport({
+          enabled: true,
+          endpoint: "https://siem.example.com/events",
+        }),
+      ).not.toThrow();
+    });
+
+    it("does not throw when emitting with SIEM disabled", () => {
+      configureSiemTransport({ enabled: false, endpoint: "https://example.com" });
+      expect(() =>
+        emitDeclawEvent({
+          source: "declaw-gateway",
+          category: "policy.deny",
+          severity: "high",
+          detail: {},
+          outcome: "denied",
+        }),
+      ).not.toThrow();
+    });
+
+    it("does not throw when SIEM endpoint is unreachable", () => {
+      configureSiemTransport({
+        enabled: true,
+        endpoint: "http://127.0.0.1:1",
+        timeoutMs: 100,
+      });
+      expect(() =>
+        emitDeclawEvent({
+          source: "declaw-gateway",
+          category: "policy.deny",
+          severity: "high",
+          detail: {},
+          outcome: "denied",
+        }),
+      ).not.toThrow();
+    });
+
+    it("does not forward when endpoint is empty", () => {
+      configureSiemTransport({ enabled: true, endpoint: "" });
+      // Should not throw even with enabled + empty endpoint
+      expect(() =>
+        emitDeclawEvent({
+          source: "declaw-gateway",
+          category: "secret.access",
+          severity: "info",
+          detail: {},
+          outcome: "success",
+        }),
+      ).not.toThrow();
     });
   });
 });

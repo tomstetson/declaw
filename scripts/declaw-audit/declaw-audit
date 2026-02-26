@@ -1,0 +1,354 @@
+#!/usr/bin/env python3
+"""
+DeClaw Audit — query, filter, and export security audit events.
+
+Reads from ~/.declaw/audit.jsonl (the unified DeClaw audit trail) and
+provides filtering, display, statistics, and CSV/JSON export for
+compliance review and incident investigation.
+"""
+
+import argparse
+import csv
+import json
+import re
+import sys
+from datetime import datetime, timedelta, timezone
+from io import StringIO
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+# DeClaw unified event schema
+_SCRIPTS_DIR = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(_SCRIPTS_DIR / "declaw-common"))
+from event_schema import DEFAULT_AUDIT_PATH, emit_event  # noqa: E402
+
+# ---------------------------------------------------------------------------
+# Duration parsing
+# ---------------------------------------------------------------------------
+
+
+def parse_duration(s: str) -> timedelta:
+    """Parse human-friendly duration strings like '24h', '7d', '30m', '2w'."""
+    match = re.fullmatch(r"(\d+)\s*([smhdw])", s.strip().lower())
+    if not match:
+        raise ValueError(
+            f"Invalid duration: '{s}'. Use format like 30m, 24h, 7d, 2w."
+        )
+    value = int(match.group(1))
+    unit = match.group(2)
+    units = {"s": "seconds", "m": "minutes", "h": "hours", "d": "days", "w": "weeks"}
+    return timedelta(**{units[unit]: value})
+
+
+# ---------------------------------------------------------------------------
+# Event reading and filtering
+# ---------------------------------------------------------------------------
+
+
+def read_events(audit_path: Path) -> List[Dict[str, Any]]:
+    """Read all events from the audit JSONL file."""
+    if not audit_path.exists():
+        return []
+    events = []
+    with open(audit_path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                try:
+                    events.append(json.loads(line))
+                except json.JSONDecodeError:
+                    continue  # Skip malformed lines
+    return events
+
+
+def filter_events(
+    events: List[Dict[str, Any]],
+    categories: Optional[List[str]] = None,
+    severities: Optional[List[str]] = None,
+    sources: Optional[List[str]] = None,
+    since: Optional[datetime] = None,
+    until: Optional[datetime] = None,
+) -> List[Dict[str, Any]]:
+    """Apply filters to a list of events."""
+    result = events
+    if categories:
+        result = [e for e in result if e.get("category") in categories]
+    if severities:
+        result = [e for e in result if e.get("severity") in severities]
+    if sources:
+        result = [e for e in result if e.get("source") in sources]
+    if since:
+        since_iso = since.isoformat()
+        result = [e for e in result if e.get("timestamp", "") >= since_iso]
+    if until:
+        until_iso = until.isoformat()
+        result = [e for e in result if e.get("timestamp", "") <= until_iso]
+    return result
+
+
+def resolve_time_arg(value: Optional[str]) -> Optional[datetime]:
+    """Resolve a --since or --until argument to a datetime."""
+    if not value:
+        return None
+    # Try ISO 8601 first
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        pass
+    # Try duration (relative to now)
+    delta = parse_duration(value)
+    return datetime.now(timezone.utc) - delta
+
+
+def format_detail_summary(event: Dict[str, Any]) -> str:
+    """One-line summary of event detail for table display."""
+    detail = event.get("detail", {})
+    category = event.get("category", "")
+
+    if category == "secret.access":
+        return f"key={detail.get('key', '?')}"
+    if category == "secret.error":
+        return f"key={detail.get('key', '?')} err={detail.get('error', '?')}"
+    if category in ("policy.deny", "policy.allow"):
+        return f"binary={detail.get('binary', '?')}"
+    if category in ("egress.enforce", "egress.warning"):
+        return detail.get("message", detail.get("effectiveNetwork", ""))
+    if category in ("config.check", "config.fix"):
+        return f"{detail.get('checkId', '?')}: {detail.get('title', '?')}"
+    if category in ("plugin.scan", "plugin.deny"):
+        return f"plugin={detail.get('pluginId', '?')}"
+    if category in ("monitor.detection", "monitor.kill"):
+        return f"pattern={detail.get('pattern', '?')}"
+    if category == "monitor.start":
+        return f"killSwitch={detail.get('killSwitch', '?')}"
+    if category == "audit.export":
+        return f"count={detail.get('eventCount', '?')}"
+
+    # Fallback: compact JSON
+    return json.dumps(detail, separators=(",", ":"))[:80]
+
+
+# ---------------------------------------------------------------------------
+# Commands
+# ---------------------------------------------------------------------------
+
+
+def cmd_query(args):
+    """Display audit events in a human-readable table."""
+    audit_path = Path(args.audit_path)
+    events = read_events(audit_path)
+
+    since = resolve_time_arg(args.since)
+    until = resolve_time_arg(args.until)
+    categories = args.category.split(",") if args.category else None
+    severities = args.severity.split(",") if args.severity else None
+    sources = args.source.split(",") if args.source else None
+
+    events = filter_events(events, categories, severities, sources, since, until)
+
+    # Newest first
+    events.sort(key=lambda e: e.get("timestamp", ""), reverse=True)
+
+    if args.limit:
+        events = events[: args.limit]
+
+    if not events:
+        print("No matching events found.")
+        return
+
+    if args.json:
+        for event in events:
+            print(json.dumps(event))
+        return
+
+    # Table display
+    for event in events:
+        ts = event.get("timestamp", "?")[:19]  # Trim to seconds
+        cat = event.get("category", "?")
+        sev = event.get("severity", "?")
+        outcome = event.get("outcome", "?")
+        summary = format_detail_summary(event)
+
+        print(f"{ts}  {sev:<8}  {cat:<20}  {outcome:<8}  {summary}")
+
+
+def cmd_export(args):
+    """Export audit events to JSON or CSV for compliance review."""
+    audit_path = Path(args.audit_path)
+    events = read_events(audit_path)
+
+    since = resolve_time_arg(args.since)
+    until = resolve_time_arg(args.until)
+    categories = args.category.split(",") if args.category else None
+    severities = args.severity.split(",") if args.severity else None
+    sources = args.source.split(",") if args.source else None
+
+    events = filter_events(events, categories, severities, sources, since, until)
+    events.sort(key=lambda e: e.get("timestamp", ""), reverse=True)
+
+    if args.limit:
+        events = events[: args.limit]
+
+    if args.format == "csv":
+        output = _export_csv(events)
+    else:
+        output = "\n".join(json.dumps(e) for e in events) + "\n" if events else ""
+
+    if args.output:
+        Path(args.output).write_text(output, encoding="utf-8")
+        print(f"Exported {len(events)} events to {args.output}")
+    else:
+        sys.stdout.write(output)
+
+    # Emit audit.export event (audit trail of audit trail access)
+    emit_event(
+        source="declaw-doctor",
+        category="audit.export",
+        severity="info",
+        detail={
+            "eventCount": len(events),
+            "format": args.format,
+            "filters": {
+                "categories": categories,
+                "severities": severities,
+                "sources": sources,
+            },
+        },
+        outcome="success",
+    )
+
+
+def _export_csv(events: List[Dict[str, Any]]) -> str:
+    """Convert events to CSV string."""
+    buf = StringIO()
+    headers = [
+        "timestamp", "version", "source", "category", "severity",
+        "outcome", "detail", "agentId", "sessionId", "user", "pid",
+    ]
+    writer = csv.DictWriter(buf, fieldnames=headers, extrasaction="ignore")
+    writer.writeheader()
+    for event in events:
+        row = dict(event)
+        row["detail"] = json.dumps(event.get("detail", {}))
+        writer.writerow(row)
+    return buf.getvalue()
+
+
+def cmd_stats(args):
+    """Show summary statistics of audit events."""
+    audit_path = Path(args.audit_path)
+    events = read_events(audit_path)
+
+    since = resolve_time_arg(args.since)
+    until = resolve_time_arg(args.until)
+    categories = args.category.split(",") if args.category else None
+    severities = args.severity.split(",") if args.severity else None
+    sources = args.source.split(",") if args.source else None
+
+    events = filter_events(events, categories, severities, sources, since, until)
+
+    if not events:
+        print("No matching events found.")
+        return
+
+    # Count by category
+    by_category: Dict[str, int] = {}
+    by_severity: Dict[str, int] = {}
+    by_source: Dict[str, int] = {}
+    by_outcome: Dict[str, int] = {}
+
+    for event in events:
+        cat = event.get("category", "unknown")
+        sev = event.get("severity", "unknown")
+        src = event.get("source", "unknown")
+        out = event.get("outcome", "unknown")
+        by_category[cat] = by_category.get(cat, 0) + 1
+        by_severity[sev] = by_severity.get(sev, 0) + 1
+        by_source[src] = by_source.get(src, 0) + 1
+        by_outcome[out] = by_outcome.get(out, 0) + 1
+
+    timestamps = [e.get("timestamp", "") for e in events if e.get("timestamp")]
+    first = min(timestamps) if timestamps else "?"
+    last = max(timestamps) if timestamps else "?"
+
+    print(f"Total events: {len(events)}")
+    print(f"Time range:   {first[:19]} → {last[:19]}")
+    print()
+
+    print("By category:")
+    for cat, count in sorted(by_category.items(), key=lambda x: -x[1]):
+        print(f"  {cat:<24} {count}")
+    print()
+
+    print("By severity:")
+    for sev, count in sorted(by_severity.items(), key=lambda x: -x[1]):
+        print(f"  {sev:<12} {count}")
+    print()
+
+    print("By source:")
+    for src, count in sorted(by_source.items(), key=lambda x: -x[1]):
+        print(f"  {src:<20} {count}")
+    print()
+
+    print("By outcome:")
+    for out, count in sorted(by_outcome.items(), key=lambda x: -x[1]):
+        print(f"  {out:<12} {count}")
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+
+def _add_filter_args(parser):
+    """Add shared filter arguments to a subcommand parser."""
+    parser.add_argument("--since", help="Start time: ISO 8601 or duration (e.g., 24h, 7d)")
+    parser.add_argument("--until", help="End time: ISO 8601 or duration")
+    parser.add_argument("--category", help="Comma-separated categories (e.g., policy.deny,secret.access)")
+    parser.add_argument("--severity", help="Comma-separated severities (e.g., critical,high)")
+    parser.add_argument("--source", help="Comma-separated sources (e.g., declaw-gateway)")
+    parser.add_argument("--limit", type=int, help="Max events to return")
+    parser.add_argument(
+        "--audit-path", default=str(DEFAULT_AUDIT_PATH),
+        help=f"Audit file path (default: {DEFAULT_AUDIT_PATH})"
+    )
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        prog="declaw-audit",
+        description="Query and export DeClaw security audit events.",
+    )
+    subparsers = parser.add_subparsers(dest="command")
+
+    # query
+    query_parser = subparsers.add_parser("query", help="Display audit events")
+    _add_filter_args(query_parser)
+    query_parser.add_argument("--json", action="store_true", help="Output as JSONL")
+
+    # export
+    export_parser = subparsers.add_parser("export", help="Export events to file")
+    _add_filter_args(export_parser)
+    export_parser.add_argument("--format", choices=["json", "csv"], default="json", help="Export format")
+    export_parser.add_argument("--output", "-o", help="Output file (default: stdout)")
+
+    # stats
+    stats_parser = subparsers.add_parser("stats", help="Show event statistics")
+    _add_filter_args(stats_parser)
+
+    args = parser.parse_args()
+
+    if not args.command:
+        parser.print_help()
+        sys.exit(1)
+
+    if args.command == "query":
+        cmd_query(args)
+    elif args.command == "export":
+        cmd_export(args)
+    elif args.command == "stats":
+        cmd_stats(args)
+
+
+if __name__ == "__main__":
+    main()

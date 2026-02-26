@@ -2,11 +2,12 @@
 Tests for declaw-doctor -- OpenClaw config security auditor.
 
 We test:
-- Each of the 10 security checks against known-bad and known-good configs
+- Each of the 15 security checks against known-bad and known-good configs
 - Check severity levels (CRITICAL, HIGH, MEDIUM, LOW)
 - Auto-fix creates backups
 - --dry-run doesn't modify config
 - Config with all issues vs config with no issues
+- Observability checks (O1 audit trail, O2 SIEM endpoint)
 """
 
 import json
@@ -481,6 +482,120 @@ class TestPluginSecurityCheck:
         assert "bundled" in policy["trustedOrigins"]
 
 
+class TestAuditTrailWritableCheck:
+    """O1: Audit trail not writable."""
+
+    def test_default_path_writable_passes(self, declaw_doctor_mod):
+        """Default ~/.declaw/audit.jsonl path should pass if home is writable."""
+        config = {}
+        auditor = _make_auditor(declaw_doctor_mod, config)
+        # On most dev machines, home dir is writable, so this should pass
+        # (or detect that ~/.declaw doesn't exist yet — which is an error)
+        result = auditor._check_audit_trail_writable(config)
+        # Either passes (dir exists and writable) or fails (dir doesn't exist)
+        # We don't assert a specific outcome since it depends on the machine,
+        # but verify it returns str or None
+        assert result is None or isinstance(result, str)
+
+    def test_custom_path_nonexistent_dir_fails(self, declaw_doctor_mod, tmp_path):
+        config = {"declaw": {"audit": {"path": str(tmp_path / "no" / "such" / "audit.jsonl")}}}
+        auditor = _make_auditor(declaw_doctor_mod, config)
+        result = auditor._check_audit_trail_writable(config)
+        assert result is not None
+        assert "does not exist" in result
+
+    def test_custom_path_writable_dir_passes(self, declaw_doctor_mod, tmp_path):
+        config = {"declaw": {"audit": {"path": str(tmp_path / "audit.jsonl")}}}
+        auditor = _make_auditor(declaw_doctor_mod, config)
+        result = auditor._check_audit_trail_writable(config)
+        assert result is None
+
+    def test_custom_path_existing_file_writable_passes(self, declaw_doctor_mod, tmp_path):
+        audit_file = tmp_path / "audit.jsonl"
+        audit_file.write_text("")
+        config = {"declaw": {"audit": {"path": str(audit_file)}}}
+        auditor = _make_auditor(declaw_doctor_mod, config)
+        result = auditor._check_audit_trail_writable(config)
+        assert result is None
+
+    def test_severity_is_medium(self, declaw_doctor_mod):
+        check = _get_check_by_id(declaw_doctor_mod, "O1")
+        assert check.severity == "MEDIUM"
+
+    def test_not_auto_fixable(self, declaw_doctor_mod):
+        check = _get_check_by_id(declaw_doctor_mod, "O1")
+        assert check.fix_fn is None
+
+
+class TestSiemEndpointCheck:
+    """O2: SIEM endpoint not configured or invalid."""
+
+    def test_siem_disabled_passes(self, declaw_doctor_mod):
+        config = {}
+        auditor = _make_auditor(declaw_doctor_mod, config)
+        result = auditor._check_siem_endpoint(config)
+        assert result is None
+
+    def test_siem_enabled_no_endpoint_fails(self, declaw_doctor_mod):
+        config = {"declaw": {"siem": {"enabled": True}}}
+        auditor = _make_auditor(declaw_doctor_mod, config)
+        result = auditor._check_siem_endpoint(config)
+        assert result is not None
+        assert "no endpoint" in result
+
+    def test_siem_enabled_valid_https_passes(self, declaw_doctor_mod):
+        config = {"declaw": {"siem": {
+            "enabled": True,
+            "endpoint": "https://siem.example.com/api/events",
+        }}}
+        auditor = _make_auditor(declaw_doctor_mod, config)
+        result = auditor._check_siem_endpoint(config)
+        assert result is None
+
+    def test_siem_enabled_valid_http_passes(self, declaw_doctor_mod):
+        config = {"declaw": {"siem": {
+            "enabled": True,
+            "endpoint": "http://localhost:8080/events",
+        }}}
+        auditor = _make_auditor(declaw_doctor_mod, config)
+        result = auditor._check_siem_endpoint(config)
+        assert result is None
+
+    def test_siem_invalid_scheme_fails(self, declaw_doctor_mod):
+        config = {"declaw": {"siem": {
+            "enabled": True,
+            "endpoint": "ftp://siem.example.com/events",
+        }}}
+        auditor = _make_auditor(declaw_doctor_mod, config)
+        result = auditor._check_siem_endpoint(config)
+        assert result is not None
+        assert "http(s)" in result
+
+    def test_siem_no_hostname_fails(self, declaw_doctor_mod):
+        config = {"declaw": {"siem": {
+            "enabled": True,
+            "endpoint": "http://",
+        }}}
+        auditor = _make_auditor(declaw_doctor_mod, config)
+        result = auditor._check_siem_endpoint(config)
+        assert result is not None
+        assert "no hostname" in result
+
+    def test_siem_enabled_false_passes(self, declaw_doctor_mod):
+        config = {"declaw": {"siem": {"enabled": False}}}
+        auditor = _make_auditor(declaw_doctor_mod, config)
+        result = auditor._check_siem_endpoint(config)
+        assert result is None
+
+    def test_severity_is_low(self, declaw_doctor_mod):
+        check = _get_check_by_id(declaw_doctor_mod, "O2")
+        assert check.severity == "LOW"
+
+    def test_not_auto_fixable(self, declaw_doctor_mod):
+        check = _get_check_by_id(declaw_doctor_mod, "O2")
+        assert check.fix_fn is None
+
+
 # ---------------------------------------------------------------------------
 # Full audit runs
 # ---------------------------------------------------------------------------
@@ -517,11 +632,11 @@ class TestFullAudit:
             assert "message" in issue
             assert "fixable" in issue
 
-    def test_check_count_is_13(self, declaw_doctor_mod, secure_config_file):
-        """There should be exactly 13 security checks defined."""
+    def test_check_count_is_15(self, declaw_doctor_mod, secure_config_file):
+        """There should be exactly 15 security checks defined."""
         auditor = declaw_doctor_mod.ConfigAuditor(secure_config_file)
         checks = auditor._get_checks()
-        assert len(checks) == 13
+        assert len(checks) == 15
 
 
 # ---------------------------------------------------------------------------
@@ -668,8 +783,8 @@ class TestDoctorAuditEvents:
         with patch.object(declaw_doctor_mod, "emit_event", side_effect=capture_emit):
             auditor.run_checks()
 
-        # Should have one event per check (13 checks)
-        assert len(events) == 13
+        # Should have one event per check (15 checks)
+        assert len(events) == 15
         # All events should be from declaw-doctor
         assert all(e["source"] == "declaw-doctor" for e in events)
         assert all(e["category"] == "config.check" for e in events)

@@ -160,11 +160,11 @@ Supported providers:
 - **1Password** (requires `op` CLI)
 - **Env file** (fallback with chmod 600 protection)
 
-All access is audit-logged to `~/.declaw/audit.log` in JSONL format. Auto-detection picks the best available provider. The `secret://` URI scheme is integrated into OpenClaw's config loader (`src/config/env-substitution.ts`) so secrets are resolved at startup without touching environment variables.
+All access is audit-logged to `~/.declaw/audit.jsonl` in JSONL format. Auto-detection picks the best available provider. The `secret://` URI scheme is integrated into OpenClaw's config loader (`src/config/env-substitution.ts`) so secrets are resolved at startup without touching environment variables.
 
 ### 2. Startup Config Validation (`declaw-doctor`)
 
-13 security checks with auto-fix for 11 of them:
+15 security checks with auto-fix for 11 of them:
 
 ```bash
 # Audit your config

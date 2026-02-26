@@ -17,12 +17,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Support for 5 providers: macOS Keychain, HashiCorp Vault, Bitwarden, 1Password, env file
 - Auto-detection of best available provider
 - `secret://` URI scheme for config references
-- Audit logging for all secret access (`~/.declaw/audit.log`)
+- Audit logging for all secret access (`~/.declaw/audit.jsonl`)
 
 **Startup Config Validation**
 
 - Added `declaw doctor` security auditor
-- 13 security checks (3 CRITICAL, 5 HIGH, 4 MEDIUM, 1 LOW)
+- 15 security checks (3 CRITICAL, 5 HIGH, 5 MEDIUM, 2 LOW)
 - Auto-fix for 8/10 checks via `--fix` flag
 - Fail-fast validation at gateway startup (refuses to start if critical issues found)
 - Backup creation before auto-fixes
@@ -32,7 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `declaw-monitor` daemon for session transcript monitoring
 - 10 detection patterns with regex matching
 - Kill switch for CRITICAL detections (stops container, blocks restart)
-- Audit trail in `~/.declaw/monitor-audit.log` (JSONL format)
+- Audit trail in `~/.declaw/audit.jsonl` (unified JSONL format)
 - < 100ms detection latency
 
 **Mandatory Docker Sandboxing**
@@ -141,7 +141,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - All OpenClaw tests pass unchanged
 - Additional security tests added:
-  - Config validation tests (13 checks)
+  - Config validation tests (15 checks)
   - Secrets manager tests (5 providers)
   - Anomaly detection tests (10 patterns)
   - Sandbox enforcement tests
@@ -149,6 +149,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ---
 
 ## [Unreleased] - v1.1.0 (In Progress)
+
+### Added - Phase 3: Unified Observability
+
+**Unified Audit Trail (Complete)**
+
+- [x] Canonical security event schema (`DeclawSecurityEvent`, 14 categories)
+- [x] Structured JSONL audit logger → `~/.declaw/audit.jsonl`
+- [x] All TypeScript hooks instrumented (exec, egress, secrets, config)
+- [x] All Python tools migrated to unified event schema
+- [x] In-memory metrics counters (per-category, auto-incremented)
+- [x] SIEM transport (fire-and-forget HTTP POST, configurable endpoint)
+- [x] Observability config types (`declaw.audit`, `declaw.siem`, `declaw.metrics`)
+- [x] `declaw-audit` CLI: query, export (JSON/CSV), stats with time-range filters
+- [x] Doctor checks O1 (audit trail writable) and O2 (SIEM endpoint valid)
 
 ### Planned - v1.1 Features
 
@@ -177,7 +191,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 **Compliance Reporting (Q3 2026)**
 
-- [ ] SOC2 audit trail export
+- [x] Audit trail export (JSON/CSV) — via `declaw-audit export`
+- [ ] SOC2 compliance mapping
 - [ ] ISO 27001 compliance checks
 - [ ] CIS benchmark validation
 - [ ] PDF report generation
@@ -198,7 +213,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 **SIEM Integration**
 
-- [ ] Splunk forwarder
+- [x] Generic HTTP POST transport (fire-and-forget)
+- [ ] Splunk forwarder (native HEC)
 - [ ] Elastic (ELK) integration
 - [ ] DataDog APM
 - [ ] Prometheus metrics exporter

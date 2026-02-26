@@ -5,6 +5,7 @@ extend-include = [
   "scripts/declaw-secrets/declaw-secrets",
   "scripts/declaw-doctor/declaw-doctor",
   "scripts/declaw-monitor/declaw-monitor",
+  "scripts/declaw-audit/declaw-audit",
 ]
 
 [tool.ruff.lint]

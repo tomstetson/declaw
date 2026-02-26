@@ -24,6 +24,8 @@ AI gateway.
 | `src/lib/declaw-events.ts`              | Canonical security event type/categories (Phase 3)  | Adding event categories or fields    |
 | `src/lib/declaw-audit.ts`               | Structured audit logger → ~/.declaw/audit.jsonl     | Audit logging bugs or new emitters   |
 | `src/lib/declaw-metrics.ts`             | In-memory metrics counters (Phase 3)                | Metrics/dashboard integration        |
+| `src/config/types.declaw.ts`            | Observability config types (Phase 3)                | Config schema changes                |
+| `scripts/declaw-audit/declaw-audit`     | Compliance query/export CLI (Python)                | Audit trail querying or export       |
 | `scripts/declaw-common/event_schema.py` | Python mirror of event schema                       | Python tool observability changes    |
 | `docs/adr/004-unified-observability.md` | ADR for Phase 3 observability architecture          | Understanding audit design decisions |
 | `package.json`                          | DeClaw branding, bin entries, version               | Version bumps or dependency changes  |
@@ -51,6 +53,7 @@ AI gateway.
 | Test secrets tool     | `python3 scripts/declaw-secrets/declaw-secrets --help`                                                                                                                                                                                                                                                                               |
 | Test doctor tool      | `python3 scripts/declaw-doctor/declaw-doctor --help`                                                                                                                                                                                                                                                                                 |
 | Test monitor tool     | `python3 scripts/declaw-monitor/declaw-monitor --help`                                                                                                                                                                                                                                                                               |
+| Test audit CLI        | `python3 scripts/declaw-audit/declaw-audit --help`                                                                                                                                                                                                                                                                                   |
 
 ## Directory Structure (DeClaw-Specific)
 
@@ -61,10 +64,12 @@ scripts/
     PROVIDERS.md      # Provider documentation
     TESTING.md        # Test procedures
     setup.py          # Python packaging
-  declaw-doctor/      # Config validator (568 lines Python)
+  declaw-doctor/      # Config validator (833 lines Python, 15 checks)
     declaw-doctor     # Main script
   declaw-monitor/     # Anomaly detector (526 lines Python)
     declaw-monitor    # Main script
+  declaw-audit/       # Compliance query/export CLI (356 lines Python)
+    declaw-audit      # Main script
   declaw-common/      # Shared Python modules
     event_schema.py   # Python mirror of DeClaw event schema (Phase 3)
 src/
@@ -79,8 +84,8 @@ src/
     declaw-plugin-security.test.ts
     declaw-events.ts             # Canonical security event schema (Phase 3)
     declaw-events.test.ts        # Tests (6)
-    declaw-audit.ts              # Structured audit logger (Phase 3)
-    declaw-audit.test.ts         # Tests (14)
+    declaw-audit.ts              # Structured audit logger + SIEM transport (Phase 3)
+    declaw-audit.test.ts         # Tests (19)
     declaw-metrics.ts            # In-memory metrics counters (Phase 3)
     declaw-metrics.test.ts       # Tests (9)
   config/
@@ -89,6 +94,9 @@ src/
     secret-resolution.integration.test.ts  # E2E secret:// tests (7)
     types.tools.ts               # Modified: added commandPolicy to ExecToolConfig
     types.sandbox.ts             # Modified: added egressPolicy to SandboxDockerSettings
+    types.declaw.ts              # Observability config types (Phase 3)
+    types.openclaw.ts            # Modified: added declaw? field
+    types.ts                     # Modified: barrel export for types.declaw.ts
     types.plugins.ts             # Modified: added pluginSecurity to PluginsConfig
   agents/
     bash-tools.exec.ts           # Modified: DeClaw command policy hook + audit event
@@ -98,7 +106,8 @@ tests/
   python/
     conftest.py                  # Shared pytest fixtures
     test_declaw_secrets.py       # 45 tests
-    test_declaw_doctor.py        # 68 tests (Phase 2 checks + audit events)
+    test_declaw_doctor.py        # 93 tests (15 checks + O1/O2 + audit events)
     test_declaw_monitor.py       # 110 tests
+    test_declaw_audit_cli.py     # 23 tests (audit CLI)
     test_declaw_events.py        # 12 tests (Phase 3 event schema)
 ```
