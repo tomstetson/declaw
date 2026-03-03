@@ -21,7 +21,7 @@
 - [x] Add pytest infrastructure for Python tools (143 tests)
 - [x] Update SECURITY.md for DeClaw
 - [x] Create ARCHITECTURE.md with Mermaid diagrams
-- [ ] End-to-end integration test (config load with real secret:// resolution)
+- [x] End-to-end integration test (config load with real secret:// resolution)
 - [ ] Remove declaw-secrets-v1 from bin exports (legacy, replaced by v2)
 
 ## Phase 2: Security Enforcement (Complete)
@@ -46,11 +46,29 @@
       `plugins.pluginSecurity`. Doctor check M4 with auto-fix.
       (src/lib/declaw-plugin-security.ts, 42 vitest + 10 pytest tests)
 
-## Phase 3: Observability (Not Started)
+## Phase 3: Observability (Complete)
 
-- [ ] Structured logging (JSON format for all DeClaw components)
-- [ ] Prometheus metrics exporter (secret resolution latency, detection counts)
-- [ ] Compliance audit trail export (SOC2-compatible format)
+- [x] **Unified event schema** — `DeclawSecurityEvent` type with 14 categories,
+      typed severities and outcomes. Canonical schema shared between TypeScript
+      and Python. (src/lib/declaw-events.ts, scripts/declaw-common/event_schema.py,
+      18 tests)
+- [x] **Structured audit logger** — JSONL audit trail at `~/.declaw/audit.jsonl`.
+      `emitDeclawEvent()` writes events, increments metrics, and forwards to SIEM.
+      All TypeScript hooks (exec, egress, secrets, config) instrumented.
+      (src/lib/declaw-audit.ts, 19 vitest tests)
+- [x] **In-memory metrics** — per-category event counters, total/error counts,
+      auto-incremented from emitDeclawEvent(). (src/lib/declaw-metrics.ts, 9 tests)
+- [x] **Python tool migration** — declaw-secrets, declaw-doctor, declaw-monitor
+      all emit unified events via shared event_schema.py. (38 new pytest tests)
+- [x] **SIEM transport** — fire-and-forget HTTP POST to configurable endpoint,
+      best-effort delivery. Config: `declaw.siem`. (5 vitest tests)
+- [x] **Observability config types** — `DeclawObservabilityConfig` (audit, siem,
+      metrics) integrated into `OpenClawConfig.declaw`. (src/config/types.declaw.ts)
+- [x] **Audit CLI** — `declaw-audit` tool for query, export (JSON/CSV), and stats
+      with time-range filters, category/severity/source filtering. (23 pytest tests)
+- [x] **Doctor O1/O2 checks** — O1: audit trail writable, O2: SIEM endpoint
+      validation. Total doctor checks: 15. (15 new pytest tests)
+- [ ] Prometheus metrics exporter (expose counters via HTTP endpoint)
 - [ ] Dashboard for detection events and secret access patterns
 
 ## Phase 4: Advanced Isolation (Not Started)
@@ -72,7 +90,13 @@
 
 ## Priorities
 
-Phase 2 is complete. All four security enforcement features are implemented:
-command allowlist (arbitrary exec), egress filtering (network exfiltration),
-webhook alerts (real-time notifications), and plugin security scanning
-(supply-chain). Phase 3 focuses on observability.
+Phases 0-3 are complete. DeClaw now covers secrets management, config validation,
+runtime monitoring, sandbox enforcement, command/egress policy, plugin security,
+and unified observability (audit trail, metrics, SIEM transport, audit CLI).
+Phase 4 focuses on advanced isolation (gVisor, mTLS, secret rotation).
+
+Remaining low-priority items:
+
+- Remove declaw-secrets-v1 from bin exports (Phase 1 cleanup)
+- Prometheus metrics HTTP endpoint (Phase 3 stretch)
+- Dashboard UI (Phase 3 stretch)
