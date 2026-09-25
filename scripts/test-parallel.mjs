@@ -137,7 +137,8 @@ const runs = [
       "run",
       "--config",
       "vitest.extensions.config.ts",
-      ...(useVmForks ? ["--pool=vmForks"] : []),
+      // Native Matrix crypto and CJS-to-ESM parser imports need Node's real loader.
+      "--pool=forks",
     ],
   },
   {
