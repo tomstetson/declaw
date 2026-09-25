@@ -1,0 +1,18 @@
+{
+  "dist/core/package-manager.js": {
+    "before": "1b564853bc4d98060abfdaa246aceba75859cd3adfc72fdb6de643ed3c2b84fe",
+    "after": "e23d8a3249475e30f74e0e61d7ce1030c0a96dd7b122d142b6f80df034ad30d1"
+  },
+  "dist/utils/git.js": {
+    "before": "9160b86aa7bbf4332ffaad1ff46291bdf340816a49801a74617e156d78f0b039",
+    "after": "d07772b4615d06ec8a165a0eea6bd50aba93bfd61bddebc0eec764e3d5cdcd88"
+  },
+  "dist/core/auth-storage.js": {
+    "before": "f7484ec7baeb15b1b8aa17d30e461ba62e1eb4272581f02f1cd7936986696db6",
+    "after": "7e5a6f2b71ec62da09b666381e3586612f63da73fe0dac7c116ed47ff43583c9"
+  },
+  "dist/core/export-html/template.js": {
+    "before": "b19ff6f2c8709000b6ce2965ef6c36db33bd67022d0b09b42138a4b5f3f1df2c",
+    "after": "63a563d991f0ade7c77473b8e32be042b8f010c3b8aff1c46bcbb31811463d32"
+  }
+}

@@ -29,12 +29,11 @@ type SessionData = {
 };
 
 const exportHtmlDir = path.dirname(fileURLToPath(import.meta.url));
-const templateHtml = fs.readFileSync(path.join(exportHtmlDir, "template.html"), "utf8");
-const templateJs = fs.readFileSync(path.join(exportHtmlDir, "template.js"), "utf8");
-const markedJs = fs.readFileSync(path.join(exportHtmlDir, "vendor", "marked.min.js"), "utf8");
-const highlightJs = fs.readFileSync(path.join(exportHtmlDir, "vendor", "highlight.min.js"), "utf8");
-
-function renderTemplate(sessionData: SessionData) {
+function renderTemplate(sessionData: SessionData, directory = exportHtmlDir) {
+  const templateHtml = fs.readFileSync(path.join(directory, "template.html"), "utf8");
+  const templateJs = fs.readFileSync(path.join(directory, "template.js"), "utf8");
+  const markedJs = fs.readFileSync(path.join(directory, "vendor", "marked.min.js"), "utf8");
+  const highlightJs = fs.readFileSync(path.join(directory, "vendor", "highlight.min.js"), "utf8");
   const html = templateHtml
     .replace("{{CSS}}", "")
     .replace("{{SESSION_DATA}}", Buffer.from(JSON.stringify(sessionData), "utf8").toString("base64"))
@@ -80,6 +79,21 @@ function now() {
 }
 
 describe("export html security hardening", () => {
+  it.each(["javascript:alert(1)", "jav&#97;script:alert(1)", "data:text/html,attack", "vbscript:attack"])("neutralizes executable markdown URL %s", (url) => {
+    const session: SessionData = { header: { id: "security", timestamp: now() }, entries: [{ id: "1", parentId: null, timestamp: now(), type: "message", message: { role: "user", content: `[unsafe](${url}) ![unsafe](${url}) [safe](https://example.com/path) [relative](./notes)` } }], leafId: "1", systemPrompt: "", tools: [] };
+    const { document } = renderTemplate(session);
+    const messages = document.getElementById("messages")!;
+    const links = Array.from(messages.querySelectorAll("a")).map((element) => element.getAttribute("href"));
+    expect(links).toContain("https://example.com/path");
+    expect(links).toContain("./notes");
+    for (const element of messages.querySelectorAll("a, img")) {
+      const value = element.getAttribute("href") ?? element.getAttribute("src") ?? "";
+      // Escaped entity text is a relative URL, never decoded a second time by HTML.
+      expect(["https:", "http:", "mailto:", "tel:", "ftp:"]).toContain(new URL(value, "https://example.com/").protocol);
+    }
+    expect(messages.textContent).toContain("unsafe");
+  });
+
   it("escapes raw HTML from markdown blocks", () => {
     const attack = "<img src=x onerror=alert(1)>";
     const session: SessionData = {
@@ -249,5 +263,26 @@ describe("export html security hardening", () => {
     expect(img).toBeTruthy();
     expect(img?.getAttribute("onerror")).toBeNull();
     expect(img?.getAttribute("src")).toBe("data:application/octet-stream;base64,AAAA");
+  });
+});
+
+const piExportHtmlDir = path.join(path.dirname(fileURLToPath(import.meta.resolve("@mariozechner/pi-coding-agent"))), "core", "export-html");
+describe.each([["DeClaw", exportHtmlDir], ["Pi", piExportHtmlDir]])("%s Markdown attributes", (_name, directory) => {
+  it.each([
+    '![x"onerror="alert(1)](https://example.com/)',
+    '[x](https://example.com/\"onmouseover=\"alert(1))',
+    '[x](https://example.com/ \'x"onmouseover="alert(1)\')',
+    '![x](https://example.com/ \'x"onerror="alert(1)\')',
+    '[unsafe](javascript:alert(1)) ![unsafe](data:text/html,attack)',
+    '<img src=x onerror=alert(1)>',
+  ])("contains untrusted text without executable attributes: %s", (content) => {
+    const session: SessionData = { header: { id: "security", timestamp: now() }, entries: [{ id: "1", parentId: null, timestamp: now(), type: "message", message: { role: "user", content } }], leafId: "1", systemPrompt: "", tools: [] };
+    const { document } = renderTemplate(session, directory);
+    const messages = document.getElementById("messages")!;
+    expect(messages.querySelector("[onerror], [onmouseover], script")).toBeNull();
+    for (const element of messages.querySelectorAll("a, img")) {
+      const value = element.getAttribute("href") ?? element.getAttribute("src") ?? "";
+      expect(["https:", "http:", "mailto:", "tel:", "ftp:"]).toContain(new URL(value, "https://example.com/").protocol);
+    }
   });
 });

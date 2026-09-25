@@ -8,7 +8,6 @@ import {
 import {
   ApplicationCommandOptionType,
   ChannelType as DiscordChannelType,
-  type APIApplicationCommandChannelOption,
 } from "discord-api-types/v10";
 import { resolveCommandAuthorizedFromAuthorizers } from "../../channels/command-gating.js";
 import type { OpenClawConfig } from "../../config/config.js";
@@ -28,10 +27,8 @@ import { resolveDiscordSenderIdentity } from "../monitor/sender-identity.js";
 import { resolveDiscordThreadParentInfo } from "../monitor/threading.js";
 import type { DiscordVoiceManager } from "./manager.js";
 
-const VOICE_CHANNEL_TYPES: NonNullable<APIApplicationCommandChannelOption["channel_types"]> = [
-  DiscordChannelType.GuildVoice,
-  DiscordChannelType.GuildStageVoice,
-];
+const VOICE_CHANNEL_TYPES: (DiscordChannelType.GuildVoice | DiscordChannelType.GuildStageVoice)[] =
+  [DiscordChannelType.GuildVoice, DiscordChannelType.GuildStageVoice];
 
 type VoiceCommandContext = {
   cfg: OpenClawConfig;
@@ -148,7 +145,7 @@ async function authorizeVoiceCommand(
   }
 
   const memberRoleIds = Array.isArray(interaction.rawData.member?.roles)
-    ? interaction.rawData.member.roles.map((roleId: string) => String(roleId))
+    ? interaction.rawData.member.roles
     : [];
   const sender = resolveDiscordSenderIdentity({ author: user, member: interaction.rawData.member });
 
