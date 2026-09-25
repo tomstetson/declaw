@@ -91,10 +91,10 @@ repos:
   # Project checks (same commands as CI)
   - repo: local
     hooks:
-      # pnpm audit --prod --audit-level=high
+      # Reject high/critical findings; recognize only the verified Pi backport.
       - id: pnpm-audit-prod
         name: pnpm-audit-prod
-        entry: pnpm audit --prod --audit-level=high
+        entry: node scripts/audit-production.mjs
         language: system
         pass_filenames: false
 

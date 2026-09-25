@@ -270,7 +270,7 @@ const piExportHtmlDir = path.join(path.dirname(fileURLToPath(import.meta.resolve
 describe.each([["DeClaw", exportHtmlDir], ["Pi", piExportHtmlDir]])("%s Markdown attributes", (_name, directory) => {
   it.each([
     '![x"onerror="alert(1)](https://example.com/)',
-    '[x](https://example.com/\"onmouseover=\"alert(1))',
+    '[x](https://example.com/"onmouseover="alert(1))',
     '[x](https://example.com/ \'x"onmouseover="alert(1)\')',
     '![x](https://example.com/ \'x"onerror="alert(1)\')',
     '[unsafe](javascript:alert(1)) ![unsafe](data:text/html,attack)',
