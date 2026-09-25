@@ -276,28 +276,28 @@ DeClaw's security model was validated through a real-world deployment:
 
 ## Quick Start
 
-Runtime: **Node 22+**
+Runtime: **Node 22.13+** and the repository-pinned pnpm version.
 
-```bash
-npm install -g declaw@latest
-
-declaw onboard --install-daemon
-```
-
-The `declaw` command maintains full backward compatibility with `openclaw` commands.
-
-### From Source
+DeClaw currently supports installation from its locked source checkout. The
+`declaw` package is not published on the public npm registry. Do not substitute an
+npm tarball install: it does not inherit the security overrides and reviewed
+backports in this workspace. npm distribution remains blocked until its packed
+consumer graph is independently patched and verified; see the
+[distribution maintenance note](docs/maintenance/2026-09-25-npm-distribution.md).
 
 ```bash
 git clone https://github.com/tomstetson/declaw.git
 cd declaw
 
-pnpm install
+pnpm install --frozen-lockfile
 pnpm ui:build
 pnpm build
+node scripts/audit-production.mjs
 
-pnpm declaw onboard --install-daemon
+node openclaw.mjs onboard --install-daemon
 ```
+
+The `declaw` command maintains full backward compatibility with `openclaw` commands.
 
 ---
 
