@@ -127,7 +127,11 @@ describe("declaw-audit", () => {
     });
 
     it("does not throw when audit file is unwritable", () => {
-      setAuditLogPath("/proc/nonexistent/audit.jsonl");
+      // A regular file cannot be a parent directory on any supported platform.
+      // Recursive mkdir beneath Linux /proc can loop instead of returning an error.
+      const blockedParent = path.join(tmpDir, "not-a-directory");
+      fs.writeFileSync(blockedParent, "preserve this file");
+      setAuditLogPath(path.join(blockedParent, "audit.jsonl"));
 
       // Should not throw — audit logging is best-effort
       expect(() =>
@@ -139,6 +143,7 @@ describe("declaw-audit", () => {
           outcome: "failure",
         }),
       ).not.toThrow();
+      expect(fs.readFileSync(blockedParent, "utf-8")).toBe("preserve this file");
     });
   });
 
