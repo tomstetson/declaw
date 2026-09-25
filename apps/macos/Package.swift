@@ -18,7 +18,7 @@ let package = Package(
         .package(url: "https://github.com/orchetect/MenuBarExtraAccess", exact: "1.2.2"),
         .package(url: "https://github.com/swiftlang/swift-subprocess.git", from: "0.1.0"),
         .package(url: "https://github.com/apple/swift-log.git", from: "1.8.0"),
-        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.8.1"),
+        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.9.6"),
         .package(url: "https://github.com/steipete/Peekaboo.git", branch: "main"),
         .package(path: "../shared/OpenClawKit"),
         .package(path: "../../Swabble"),
