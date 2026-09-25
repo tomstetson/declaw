@@ -1,4 +1,6 @@
-import { describe, expect, it, vi } from "vitest";
+import { inspect } from "node:util";
+import { runInNewContext } from "node:vm";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   isSecretUri,
   parseSecretUri,
@@ -8,13 +10,14 @@ import {
 } from "./secrets.js";
 
 // Mock child_process so we never shell out to a real Python script
-vi.mock("node:child_process", () => ({
-  execSync: vi.fn(),
-}));
+vi.mock("node:child_process", () => {
+  const launch = vi.fn();
+  return { execFileSync: launch, execSync: launch };
+});
 
-// Import the mocked execSync so we can control its behavior per-test
-import { execSync } from "node:child_process";
-const mockedExecSync = vi.mocked(execSync);
+// Control only the Python launch; never contact a real provider.
+import { execFileSync } from "node:child_process";
+const mockedExecFileSync = vi.mocked(execFileSync);
 
 describe("isSecretUri", () => {
   it("returns true for a valid secret:// URI", () => {
@@ -80,20 +83,26 @@ describe("parseSecretUri", () => {
 });
 
 describe("resolveSecret", () => {
+  beforeEach(() => {
+    mockedExecFileSync.mockReset();
+    vi.stubEnv("DECLAW_SECRETS_PROVIDER", "");
+  });
+  afterEach(() => vi.unstubAllEnvs());
   it("returns trimmed secret value on success", () => {
-    mockedExecSync.mockReturnValueOnce("  my-secret-value  \n");
+    mockedExecFileSync.mockReturnValueOnce("  my-secret-value  \n");
 
     const result = resolveSecret("API_KEY", "models.providers.anthropic.apiKey");
 
     expect(result).toBe("my-secret-value");
-    expect(mockedExecSync).toHaveBeenCalledWith(
-      expect.stringContaining('"API_KEY"'),
+    expect(mockedExecFileSync).toHaveBeenCalledWith(
+      process.platform === "win32" ? "python" : "python3",
+      ["-I", "-X", "utf8", expect.stringContaining("declaw-secrets"), "get", "--", "API_KEY"],
       expect.objectContaining({ encoding: "utf-8", timeout: 5000 }),
     );
   });
 
   it("throws SecretNotFoundError when result is empty", () => {
-    mockedExecSync.mockReturnValueOnce("   \n");
+    mockedExecFileSync.mockReturnValueOnce("   \n");
 
     expect(() => resolveSecret("EMPTY_SECRET", "config.key")).toThrow(SecretNotFoundError);
   });
@@ -101,7 +110,7 @@ describe("resolveSecret", () => {
   it("throws SecretNotFoundError when stderr contains 'not found'", () => {
     const error = new Error("Process exited with code 1") as Error & { stderr: string };
     error.stderr = "Error: secret 'MISSING' not found in vault";
-    mockedExecSync.mockImplementationOnce(() => {
+    mockedExecFileSync.mockImplementationOnce(() => {
       throw error;
     });
 
@@ -111,7 +120,7 @@ describe("resolveSecret", () => {
   it("throws SecretNotFoundError when stderr contains 'does not exist'", () => {
     const error = new Error("Process exited with code 1") as Error & { stderr: string };
     error.stderr = "secret does not exist";
-    mockedExecSync.mockImplementationOnce(() => {
+    mockedExecFileSync.mockImplementationOnce(() => {
       throw error;
     });
 
@@ -120,7 +129,7 @@ describe("resolveSecret", () => {
 
   it("throws SecretsManagerNotAvailableError when script is missing", () => {
     const error = new Error("ENOENT: no such file or directory");
-    mockedExecSync.mockImplementationOnce(() => {
+    mockedExecFileSync.mockImplementationOnce(() => {
       throw error;
     });
 
@@ -129,7 +138,7 @@ describe("resolveSecret", () => {
 
   it("throws SecretsManagerNotAvailableError for generic exec failures", () => {
     const error = new Error("Command failed: timeout");
-    mockedExecSync.mockImplementationOnce(() => {
+    mockedExecFileSync.mockImplementationOnce(() => {
       throw error;
     });
 
@@ -140,42 +149,43 @@ describe("resolveSecret", () => {
     // Defense in depth: resolveSecret validates internally even though
     // parseSecretUri also validates. This prevents injection if resolveSecret
     // is called directly with an unsanitized name.
-    mockedExecSync.mockClear();
+    mockedExecFileSync.mockClear();
     expect(() => resolveSecret('foo"; rm -rf /', "config.key")).toThrow(SecretNotFoundError);
-    expect(mockedExecSync).not.toHaveBeenCalled();
+    expect(mockedExecFileSync).not.toHaveBeenCalled();
   });
 
   it("rejects secret names with spaces", () => {
-    mockedExecSync.mockClear();
+    mockedExecFileSync.mockClear();
     expect(() => resolveSecret("HAS SPACE", "config.key")).toThrow(SecretNotFoundError);
-    expect(mockedExecSync).not.toHaveBeenCalled();
+    expect(mockedExecFileSync).not.toHaveBeenCalled();
   });
 
   it("rejects secret names with backticks", () => {
-    mockedExecSync.mockClear();
+    mockedExecFileSync.mockClear();
     expect(() => resolveSecret("`whoami`", "config.key")).toThrow(SecretNotFoundError);
-    expect(mockedExecSync).not.toHaveBeenCalled();
+    expect(mockedExecFileSync).not.toHaveBeenCalled();
   });
 
   it("rejects secret names with dollar signs", () => {
-    mockedExecSync.mockClear();
+    mockedExecFileSync.mockClear();
     expect(() => resolveSecret("$(id)", "config.key")).toThrow(SecretNotFoundError);
-    expect(mockedExecSync).not.toHaveBeenCalled();
+    expect(mockedExecFileSync).not.toHaveBeenCalled();
   });
 
   it("accepts valid secret names with underscores and hyphens", () => {
-    mockedExecSync.mockReturnValueOnce("value\n");
+    mockedExecFileSync.mockReturnValueOnce("value\n");
     expect(() => resolveSecret("MY_API-KEY_v2", "config.key")).not.toThrow();
   });
 
   it("passes --provider flag when DECLAW_SECRETS_PROVIDER is set", () => {
     vi.stubEnv("DECLAW_SECRETS_PROVIDER", "env");
-    mockedExecSync.mockReturnValueOnce("secret-value\n");
+    mockedExecFileSync.mockReturnValueOnce("secret-value\n");
 
     resolveSecret("MY_KEY", "config.path");
 
-    expect(mockedExecSync).toHaveBeenCalledWith(
-      expect.stringContaining('--provider "env"'),
+    expect(mockedExecFileSync).toHaveBeenCalledWith(
+      expect.any(String),
+      ["-I", "-X", "utf8", expect.any(String), "--provider", "env", "get", "--", "MY_KEY"],
       expect.any(Object),
     );
     vi.unstubAllEnvs();
@@ -183,15 +193,132 @@ describe("resolveSecret", () => {
 
   it("does not pass --provider flag when DECLAW_SECRETS_PROVIDER is unset", () => {
     delete process.env.DECLAW_SECRETS_PROVIDER;
-    mockedExecSync.mockReturnValueOnce("secret-value\n");
+    mockedExecFileSync.mockReturnValueOnce("secret-value\n");
 
     resolveSecret("MY_KEY", "config.path");
 
-    expect(mockedExecSync).toHaveBeenCalledWith(
-      expect.not.stringContaining("--provider"),
+    expect(mockedExecFileSync).toHaveBeenCalledWith(
+      expect.any(String),
+      ["-I", "-X", "utf8", expect.any(String), "get", "--", "MY_KEY"],
       expect.any(Object),
     );
   });
+});
+
+describe("secret process boundary", () => {
+  beforeEach(() => {
+    mockedExecFileSync.mockReset();
+    vi.stubEnv("DECLAW_SECRETS_PROVIDER", "");
+  });
+  afterEach(() => vi.unstubAllEnvs());
+
+  it.each(["keychain", "vault", "bitwarden", "1password", "env"])(
+    "passes supported provider %s as one argument without a shell",
+    (provider) => {
+      vi.stubEnv("DECLAW_SECRETS_PROVIDER", provider);
+      mockedExecFileSync.mockReturnValueOnce("value\n");
+      expect(resolveSecret("VALID_KEY", "key")).toBe("value");
+      const [interpreter, argv, options] = mockedExecFileSync.mock.calls[0];
+      expect(interpreter).toBe(process.platform === "win32" ? "python" : "python3");
+      expect(argv).toEqual([
+        "-I",
+        "-X",
+        "utf8",
+        expect.any(String),
+        "--provider",
+        provider,
+        "get",
+        "--",
+        "VALID_KEY",
+      ]);
+      expect(options).toMatchObject({
+        encoding: "utf-8",
+        stdio: ["pipe", "pipe", "pipe"],
+        timeout: 5000,
+      });
+      expect(options).not.toHaveProperty("shell", true);
+      expect(options).not.toHaveProperty("env");
+    },
+  );
+
+  it.each([
+    "$(touch SENTINEL)",
+    "`touch SENTINEL`",
+    'env";echo marker;',
+    "env && echo marker",
+    " env",
+    "env ",
+    "ENV",
+    "unknown",
+  ])("rejects invalid provider %s before spawning", (provider) => {
+    vi.stubEnv("DECLAW_SECRETS_PROVIDER", provider);
+    expect(() => resolveSecret("VALID_KEY", "key")).toThrow(SecretsManagerNotAvailableError);
+    expect(mockedExecFileSync).not.toHaveBeenCalled();
+  });
+
+  it.each(["--help", "-", "--", "-secret"])("rejects option-like name %s consistently", (name) => {
+    expect(parseSecretUri(`secret://${name}`)).toBeNull();
+    expect(() => resolveSecret(name, "key")).toThrow(SecretNotFoundError);
+    expect(mockedExecFileSync).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["string", "not found"],
+    ["buffer", "does not exist"],
+    ["string", "provider unavailable"],
+  ])("classifies and redacts a foreign-realm %s error: %s", (encoding, message) => {
+    const marker = "SYNTHETIC_FOREIGN_PRIVATE_OUTPUT";
+    const foreignError = runInNewContext("new Error('child process failed')") as Error;
+    expect(foreignError).not.toBeInstanceOf(Error);
+    Object.assign(foreignError, {
+      stderr:
+        encoding === "buffer" ? Buffer.from(`${message}: ${marker}`) : `${message}: ${marker}`,
+      stdout: marker,
+      output: [null, marker, marker],
+    });
+    mockedExecFileSync.mockImplementationOnce(() => {
+      throw foreignError;
+    });
+    let caught: unknown;
+    try {
+      resolveSecret("VALID_KEY", "key");
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(
+      message === "provider unavailable" ? SecretsManagerNotAvailableError : SecretNotFoundError,
+    );
+    expect(caught).toHaveProperty("cause", undefined);
+    expect(String(caught)).not.toContain(marker);
+    expect(inspect(caught)).not.toContain(marker);
+    expect(JSON.stringify(caught)).not.toContain(marker);
+  });
+
+  it.each(["failed", "not found", "does not exist"])(
+    "does not retain subprocess output for %s",
+    (message) => {
+      const marker = "SYNTHETIC_PRIVATE_OUTPUT";
+      mockedExecFileSync.mockImplementationOnce(() => {
+        throw Object.assign(new Error(`${message}: ${marker}`), {
+          stdout: marker,
+          stderr: Buffer.from(`${message}: ${marker}`),
+          output: [null, marker, marker],
+        });
+      });
+      let caught: unknown;
+      try {
+        resolveSecret("VALID_KEY", "key");
+      } catch (error) {
+        caught = error;
+      }
+      expect(caught).toBeInstanceOf(
+        message === "failed" ? SecretsManagerNotAvailableError : SecretNotFoundError,
+      );
+      expect(String(caught)).not.toContain(marker);
+      expect(inspect(caught)).not.toContain(marker);
+      expect(JSON.stringify(caught)).not.toContain(marker);
+    },
+  );
 });
 
 describe("error classes", () => {

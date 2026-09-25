@@ -36,7 +36,10 @@ const OUTPUT_EXEC_COMPLETED = "Exec completed";
 const OUTPUT_EXIT_CODE_1 = "Command exited with code 1";
 const shellEcho = (message: string) => (isWin ? `Write-Output ${message}` : `echo ${message}`);
 const COMMAND_ECHO_HELLO = shellEcho("hello");
-const COMMAND_PRINT_PATH = isWin ? "Write-Output $env:PATH" : "echo $PATH";
+// PowerShell itself prepends PSHOME when starting. Exclude only that known shell entry.
+const COMMAND_PRINT_PATH = isWin
+  ? 'Write-Output (($env:PATH -split ";" | Where-Object { $_ -ne $PSHOME }) -join ";")'
+  : "echo $PATH";
 const COMMAND_EXIT_WITH_ERROR = "exit 1";
 const SCOPE_KEY_ALPHA = "agent:alpha";
 const SCOPE_KEY_BETA = "agent:beta";

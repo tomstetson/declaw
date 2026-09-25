@@ -13,11 +13,12 @@
  * ```
  */
 
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { resolveOpenClawPackageRootSync } from "../infra/openclaw-root.js";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const SECRET_NAME = /^[A-Za-z0-9_][A-Za-z0-9_-]*$/;
+const PROVIDERS = new Set(["keychain", "vault", "bitwarden", "1password", "env"]);
 
 export class SecretNotFoundError extends Error {
   constructor(
@@ -54,28 +55,33 @@ export class SecretsManagerNotAvailableError extends Error {
  * @throws {SecretsManagerNotAvailableError} If declaw-secrets is not available
  */
 export function resolveSecret(secretName: string, configPath: string): string {
-  // Defense in depth: validate secret name before constructing shell command.
-  // The caller (parseSecretUri) also validates, but resolveSecret is a public
-  // function — any future caller must not be able to inject shell metacharacters.
-  if (!/^[A-Za-z0-9_-]+$/.test(secretName)) {
+  // Reject option-like keys consistently, including for downstream provider CLIs.
+  if (!SECRET_NAME.test(secretName)) {
     throw new SecretNotFoundError(secretName, configPath);
   }
 
-  try {
-    // Try to call declaw-secrets from the bundled scripts directory
-    const declawSecretsPath = path.resolve(
-      __dirname,
-      "../../scripts/declaw-secrets/declaw-secrets",
-    );
+  const provider = process.env.DECLAW_SECRETS_PROVIDER;
+  if (provider && !PROVIDERS.has(provider)) {
+    throw new SecretsManagerNotAvailableError();
+  }
 
-    // Allow operators (and tests) to force a specific provider via env var.
-    const providerArg = process.env.DECLAW_SECRETS_PROVIDER
-      ? ` --provider "${process.env.DECLAW_SECRETS_PROVIDER}"`
-      : "";
-    const result = execSync(`"${declawSecretsPath}"${providerArg} get "${secretName}"`, {
+  try {
+    // Resolve from this module, never from an operator-controlled working directory.
+    const packageRoot = resolveOpenClawPackageRootSync({ moduleUrl: import.meta.url });
+    if (!packageRoot) {
+      throw new SecretsManagerNotAvailableError();
+    }
+    const declawSecretsPath = path.join(packageRoot, "scripts", "declaw-secrets", "declaw-secrets");
+    // Isolated Python ignores PYTHON* startup hooks and the user site directory.
+    const args = ["-I", "-X", "utf8", declawSecretsPath];
+    if (provider) {
+      args.push("--provider", provider);
+    }
+    args.push("get", "--", secretName);
+    const result = execFileSync(process.platform === "win32" ? "python" : "python3", args, {
       encoding: "utf-8",
       stdio: ["pipe", "pipe", "pipe"],
-      timeout: 5000, // 5 second timeout
+      timeout: 5000,
     });
 
     const secretValue = result.trim();
@@ -91,15 +97,22 @@ export function resolveSecret(secretName: string, configPath: string): string {
     }
 
     // If exec failed, check if it's because the secret doesn't exist
-    if (error instanceof Error && "stderr" in error) {
-      const stderr = (error as { stderr?: string }).stderr || "";
+    // Native child-process errors can originate in another VM realm.
+    if (typeof error === "object" && error !== null && "stderr" in error) {
+      const rawStderr = (error as { stderr?: unknown }).stderr;
+      const stderr =
+        typeof rawStderr === "string"
+          ? rawStderr
+          : Buffer.isBuffer(rawStderr)
+            ? rawStderr.toString("utf8")
+            : "";
       if (stderr.includes("not found") || stderr.includes("does not exist")) {
-        throw new SecretNotFoundError(secretName, configPath, error as Error);
+        throw new SecretNotFoundError(secretName, configPath);
       }
     }
 
-    // Otherwise, declaw-secrets itself is not available
-    throw new SecretsManagerNotAvailableError(error as Error);
+    // Child errors can retain secret stdout/stderr. Never attach them to public errors.
+    throw new SecretsManagerNotAvailableError();
   }
 }
 
@@ -123,8 +136,8 @@ export function parseSecretUri(uri: string): string | null {
 
   const secretName = uri.slice("secret://".length);
 
-  // Validate secret name (must be non-empty, alphanumeric + underscore)
-  if (!/^[A-Za-z0-9_-]+$/.test(secretName)) {
+  // A key cannot begin with a hyphen: providers may interpret it as an option.
+  if (!SECRET_NAME.test(secretName)) {
     return null;
   }
 

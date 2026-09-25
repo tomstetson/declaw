@@ -662,7 +662,7 @@
   function escapeHtml(text) {
     const div = document.createElement("div");
     div.textContent = text;
-    return div.innerHTML;
+    return div.innerHTML.replace(/"/g, "&quot;").replace(/'/g, "&#39;");
   }
 
   // Validate image fields before interpolating data URLs.
@@ -1713,10 +1713,49 @@
   }
 
   // Configure marked with syntax highlighting and HTML escaping for text
-  marked.use({
+  function sanitizeMarkdownUrl(value) {
+        const href = String(value || '').trim().replace(/[\x00-\x1f\x7f]/g, '');
+        if (!href) return href;
+
+        const scheme = href.match(/^([A-Za-z][A-Za-z0-9+.-]*):/);
+        if (scheme && !/^(https?|mailto|tel|ftp)$/i.test(scheme[1])) {
+          return null;
+        }
+
+        return href;
+      }
+
+
+marked.use({
     breaks: true,
     gfm: true,
     renderer: {
+link(token) {
+            const href = sanitizeMarkdownUrl(token.href);
+            if (href === null) {
+              return this.parser.parseInline(token.tokens);
+            }
+            let out = '<a href="' + escapeHtml(href) + '"';
+            if (token.title) {
+              out += ' title="' + escapeHtml(token.title) + '"';
+            }
+            out += '>' + this.parser.parseInline(token.tokens) + '</a>';
+            return out;
+          },
+          // Sanitize image src URLs with the same scheme allow-list.
+          image(token) {
+            const href = sanitizeMarkdownUrl(token.href);
+            if (href === null) {
+              return escapeHtml(token.text || '');
+            }
+            let out = '<img src="' + escapeHtml(href) + '" alt="' + escapeHtml(token.text || '') + '"';
+            if (token.title) {
+              out += ' title="' + escapeHtml(token.title) + '"';
+            }
+            out += '>';
+            return out;
+          },
+
       // Code blocks: syntax highlight, no HTML escaping
       code(token) {
         const code = token.text;

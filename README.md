@@ -449,6 +449,6 @@ DeClaw is a fork of OpenClaw. Both projects are MIT-licensed.
 
 **Do not** open public GitHub issues for security vulnerabilities.
 
-**Email:** security@stetson.dev
+**Email:** <security@stetson.dev>
 
 **In scope:** Prompt injection bypasses, container escape techniques, secrets manager vulnerabilities, authentication bypasses, data exfiltration vectors.
