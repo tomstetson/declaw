@@ -490,6 +490,12 @@ jobs:
           node-version: 22.x
           check-latest: true
 
+      - name: Setup Python (for DeClaw integration tests)
+        if: matrix.task == 'test'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
       - name: Setup pnpm + cache store
         uses: ./.github/actions/setup-pnpm-store-cache
         with:

@@ -14,7 +14,7 @@ while closing security gaps in the default configuration.
 
 All DeClaw additions live in these locations:
 
-- `src/lib/secrets.ts` - TypeScript bridge to declaw-secrets (execSync to Python)
+- `src/lib/secrets.ts` - TypeScript bridge to declaw-secrets (execFileSync to Python)
 - `src/lib/declaw-command-policy.ts` - Command allowlist/denylist enforcement (Phase 2)
 - `src/lib/declaw-egress-policy.ts` - Egress filtering for sandbox containers (Phase 2)
 - `src/lib/declaw-plugin-security.ts` - Plugin security scanning policy (Phase 2)
@@ -79,8 +79,8 @@ This means `secret://ANTHROPIC_API_KEY` resolves from the vault, while
 
 ## Gotchas
 
-- `secrets.ts` resolves the Python script path relative to `__dirname` via
-  `../../scripts/declaw-secrets/declaw-secrets`. This breaks if file moves.
+- `secrets.ts` resolves the owning DeClaw/OpenClaw package from its module URL,
+  then launches bundled Python with shell-free arguments. Python 3 must be on PATH.
 - Python tools are standalone scripts (shebang `#!/usr/bin/env python3`), not
   importable modules. They communicate via stdout/stderr/exit codes.
 - `declaw-monitor` webhook alerts use stdlib only (urllib, smtplib) — no requests dependency.

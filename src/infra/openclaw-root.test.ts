@@ -141,6 +141,17 @@ describe("resolveOpenClawPackageRoot", () => {
     expect(resolveOpenClawPackageRootSync({ moduleUrl })).toBe(pkgRoot);
   });
 
+  it.each(["src/lib/secrets.ts", "dist/config.js"])(
+    "finds the DeClaw root from %s",
+    async (relativeModule) => {
+      const pkgRoot = fx("declaw-module");
+      setFile(path.join(pkgRoot, "package.json"), JSON.stringify({ name: "declaw" }));
+      const moduleUrl = pathToFileURL(path.join(pkgRoot, relativeModule)).toString();
+      expect(resolveOpenClawPackageRootSync({ moduleUrl })).toBe(pkgRoot);
+      await expect(resolveOpenClawPackageRoot({ moduleUrl })).resolves.toBe(pkgRoot);
+    },
+  );
+
   it("returns null for non-openclaw package roots", async () => {
     const pkgRoot = fx("not-openclaw");
     setFile(path.join(pkgRoot, "package.json"), JSON.stringify({ name: "not-openclaw" }));

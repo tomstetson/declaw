@@ -39,6 +39,7 @@
     "dist/",
     "docs/",
     "extensions/",
+    "scripts/declaw-common/",
     "scripts/declaw-doctor/",
     "scripts/declaw-monitor/",
     "scripts/declaw-secrets/",
