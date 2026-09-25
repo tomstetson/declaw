@@ -31,6 +31,7 @@ const sdkShutdown = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 const logEmit = vi.hoisted(() => vi.fn());
 const logShutdown = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 const traceExporterCtor = vi.hoisted(() => vi.fn());
+const logProcessorCtor = vi.hoisted(() => vi.fn());
 
 vi.mock("@opentelemetry/api", () => ({
   metrics: {
@@ -68,7 +69,11 @@ vi.mock("@opentelemetry/exporter-logs-otlp-proto", () => ({
 }));
 
 vi.mock("@opentelemetry/sdk-logs", () => ({
-  BatchLogRecordProcessor: class {},
+  BatchLogRecordProcessor: class {
+    constructor(...args: unknown[]) {
+      logProcessorCtor(...args);
+    }
+  },
   LoggerProvider: class {
     getLogger = vi.fn(() => ({
       emit: logEmit,
@@ -191,7 +196,26 @@ describe("diagnostics-otel service", () => {
     logEmit.mockClear();
     logShutdown.mockClear();
     traceExporterCtor.mockClear();
+    logProcessorCtor.mockClear();
     registerLogTransportMock.mockReset();
+  });
+
+  test.each([
+    [undefined, 5000],
+    [50, 1000],
+    [12000, 12000],
+  ])("preserves log batching for flush interval %s", async (interval, expectedDelay) => {
+    const service = createDiagnosticsOtelService();
+    const ctx = createOtelContext(OTEL_TEST_ENDPOINT, { logs: true });
+    if (interval !== undefined) {
+      ctx.config.diagnostics!.otel!.flushIntervalMs = interval;
+    }
+    await service.start(ctx);
+    expect(logProcessorCtor).toHaveBeenCalledExactlyOnceWith({
+      exporter: expect.any(Object),
+      scheduledDelayMillis: expectedDelay,
+    });
+    await service.stop?.(ctx);
   });
 
   test("records message-flow metrics and spans", async () => {
