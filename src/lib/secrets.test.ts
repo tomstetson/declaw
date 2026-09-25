@@ -1,4 +1,5 @@
 import { inspect } from "node:util";
+import { runInNewContext } from "node:vm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   isSecretUri,
@@ -259,6 +260,38 @@ describe("secret process boundary", () => {
     expect(parseSecretUri(`secret://${name}`)).toBeNull();
     expect(() => resolveSecret(name, "key")).toThrow(SecretNotFoundError);
     expect(mockedExecFileSync).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["string", "not found"],
+    ["buffer", "does not exist"],
+    ["string", "provider unavailable"],
+  ])("classifies and redacts a foreign-realm %s error: %s", (encoding, message) => {
+    const marker = "SYNTHETIC_FOREIGN_PRIVATE_OUTPUT";
+    const foreignError = runInNewContext("new Error('child process failed')") as Error;
+    expect(foreignError).not.toBeInstanceOf(Error);
+    Object.assign(foreignError, {
+      stderr:
+        encoding === "buffer" ? Buffer.from(`${message}: ${marker}`) : `${message}: ${marker}`,
+      stdout: marker,
+      output: [null, marker, marker],
+    });
+    mockedExecFileSync.mockImplementationOnce(() => {
+      throw foreignError;
+    });
+    let caught: unknown;
+    try {
+      resolveSecret("VALID_KEY", "key");
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(
+      message === "provider unavailable" ? SecretsManagerNotAvailableError : SecretNotFoundError,
+    );
+    expect(caught).toHaveProperty("cause", undefined);
+    expect(String(caught)).not.toContain(marker);
+    expect(inspect(caught)).not.toContain(marker);
+    expect(JSON.stringify(caught)).not.toContain(marker);
   });
 
   it.each(["failed", "not found", "does not exist"])(

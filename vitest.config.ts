@@ -31,6 +31,8 @@ export default defineConfig({
     unstubEnvs: true,
     // Same rationale as unstubEnvs: avoid cross-test pollution under vmForks.
     unstubGlobals: true,
+    // Recycle VM workers before their retained module caches hit the Node heap cap.
+    vmMemoryLimit: "1GiB",
     pool: "forks",
     maxWorkers: isCI ? ciWorkers : localWorkers,
     include: [

@@ -97,7 +97,8 @@ export function resolveSecret(secretName: string, configPath: string): string {
     }
 
     // If exec failed, check if it's because the secret doesn't exist
-    if (error instanceof Error && "stderr" in error) {
+    // Native child-process errors can originate in another VM realm.
+    if (typeof error === "object" && error !== null && "stderr" in error) {
       const rawStderr = (error as { stderr?: unknown }).stderr;
       const stderr =
         typeof rawStderr === "string"

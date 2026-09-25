@@ -8,6 +8,10 @@ import path from "node:path";
 const pnpm = "pnpm";
 
 const unitIsolatedFilesRaw = [
+  // Real secret subprocesses and their mock controls need separate module registries.
+  "src/lib/secrets.test.ts",
+  "src/config/secret-resolution.integration.test.ts",
+  "src/config/env-substitution.test.ts",
   "src/plugins/loader.test.ts",
   "src/plugins/tools.optional.test.ts",
   "src/agents/session-tool-result-guard.tool-result-persist-hook.test.ts",
